@@ -6,13 +6,13 @@ mosip-ocr-project/
 │   ├── 📁 routes/             # API endpoints (separate files!)
 │   │   ├── __init__.py
 │   │   ├── extraction.py      # A1's endpoints
-│   │   ├── mapping.py         # A2's endpoints  ✅ YOUR ENDPOINT FILE!
+│   │   ├── mapping.py         # A2's endpoints  
 │   │   └── verification.py    # A3's endpoints
 │   │
 │   ├── 📁 core/               # Business logic (separate files!)
 │   │   ├── __init__.py
 │   │   ├── ocr.py            # A1's OCR logic
-│   │   ├── mapper.py         # A2's mapping logic  ✅ YOUR LOGIC FILE!
+│   │   ├── mapper.py         # A2's mapping logic  
 │   │   └── verifier.py       # A3's verification logic
 │   │
 │   └── 📁 uploads/
