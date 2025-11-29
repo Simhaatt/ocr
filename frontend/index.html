@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OCR Frontend</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header><h1>MOSIP OCR Dashboard</h1></header>
+  <main>
+    <section>
+      <h2>Extraction</h2>
+      <textarea id="extraction-input" placeholder="Paste sample text or upload file soon..."></textarea>
+      <button id="extraction-run">Run Extraction</button>
+      <pre id="extraction-output"></pre>
+    </section>
+    <section>
+      <h2>Mapping</h2>
+      <button id="mapping-run">Run Mapping</button>
+      <pre id="mapping-output"></pre>
+    </section>
+    <section>
+      <h2>Verification</h2>
+      <button id="verification-run">Run Verification</button>
+      <pre id="verification-output"></pre>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
