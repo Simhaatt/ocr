@@ -1,4 +1,0 @@
-# label,name_ocr,dob_ocr,phone_ocr,address_ocr,gender_ocr,name_user,dob_user,phone_user,address_user,gender_user
-match,Ramesh Kumaar,19/04/2001,+91 98765-43210,"Flat No. B-12/3, Gandhi St. (Near MG Road)",Male,Ramesh Kumar,19-04-2001,9876543210,"B12/3 Gandhi Street MG Road",male
-mismatch,Alice Johnson,01/01/1990,+1 555 123 4567,123 Main Street,female,Ramesh Kumar,19-04-2001,9876543210,99 Elm Avenue,male
-near,Shreya P.,12-12-1995,080-23456789,"Apt 5, Sunrise Ave",female,Shreya Priya,12/12/1995,23456789,"Apartment 5 Sunrise Avenue",female
