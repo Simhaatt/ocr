@@ -46,7 +46,7 @@ PHONE_TEMPLATE = """\nName: Ramesh Kumar\nDOB: 19/04/2001\nGender: Male\nAddress
         ("876543210", 0.94, 0.96),        # last 9 digits -> heuristic 0.95
         ("76543210", 0.89, 0.91),         # last 8 digits -> heuristic 0.90
         ("6543210", 0.84, 0.86),          # last 7 digits -> heuristic 0.85
-        ("543210", 0.15, 0.30),           # observed low fallback for very short
+        ("543210", 0.78, 0.82),           # last 6 digits -> new heuristic 0.80 after tuning
     ]
 )
 def test_phone_suffix_tolerance(phone_variant, min_score, max_score):

@@ -16,6 +16,12 @@ import unicodedata
 from datetime import datetime
 from typing import Dict, Tuple, Any
 from rapidfuzz import fuzz
+try:
+    # Unidecode provides transliteration (Hindi -> ASCII) without dropping meaning.
+    from unidecode import unidecode
+except ImportError:  # graceful fallback if not installed yet
+    def unidecode(x: str) -> str:
+        return x
 
 # --- small mappings used in normalization ---
 ABBR = {
@@ -29,11 +35,20 @@ ABBR = {
     "no": "number", "hno": "house number",
     # misc local (common in IN addresses)
     "po": "post office", "ps": "police station", "stn": "station", "dist": "district", "tal": "taluk", "teh": "tehsil", "nr": "near",
+    # Hindi (native script) common tokens -> English expansions
+    "रोड": "road", "मार्ग": "road", "सड़क": "road", "सडक": "road", "सड़क": "road", "गली": "lane",
+    "मकान": "house", "भवन": "building", "टावर": "tower", "अपार्टमेंट": "apartment", "फ़्लैट": "flat", "फ्लैट": "flat",
+    "नजदीक": "near", "नज़दीक": "near", "पास": "near",
+    # Hindi transliterations (post-unidecode) -> English expansions
+    "rod": "road", "marg": "road", "sadak": "road", "gali": "lane", "makan": "house", "bhavan": "building",
+    "tavar": "tower", "apartment": "apartment", "phlait": "flat", "flat": "flat", "najdik": "near", "nazdik": "near", "paas": "near",
 }
 STOPWORDS = {
     # address glue words (kept conservative to avoid harming names)
     "near", "nearby", "opposite", "opp", "behind", "beside", "by", "at", "the", "in",
-    "next", "to", "of", "and"
+    "next", "to", "of", "and",
+    # Hindi stopwords (common particles / connectors)
+    "के", "और", "में", "का", "की", "पर", "को", "से", "तक",
 }
 COMMON_DATE_FORMATS = [
     "%d-%m-%Y", "%d-%m-%y", "%d/%m/%Y", "%d/%m/%y",
@@ -45,12 +60,18 @@ COMMON_DATE_FORMATS = [
 # Normalization functions
 # -----------------------------
 def normalize_unicode(s: str) -> str:
-    """Remove accents / zero-width / control chars and decompose unicode."""
+    """Normalize & transliterate unicode.
+
+    Steps:
+    - NFKD decomposition
+    - Transliterate (e.g. Hindi देवनागरी -> Latin) via unidecode when available
+    - Remove control characters
+    This retains semantic content of Hindi instead of dropping characters.
+    """
     if not s:
         return ""
     s = unicodedata.normalize("NFKD", str(s))
-    s = s.encode("ascii", "ignore").decode("ascii")  # drop accents
-    # remove control characters (category starting with 'C')
+    s = unidecode(s)
     s = "".join(ch for ch in s if unicodedata.category(ch)[0] != "C")
     return s
 
@@ -58,7 +79,12 @@ def normalize_digits(s: str) -> str:
     """Return digits only (useful for phone / id)."""
     if not s:
         return ""
-    return re.sub(r"\D", "", str(s))
+    # Map Devanagari digits to ASCII before stripping
+    dev_map = str.maketrans({
+        '०': '0','१': '1','२': '2','३': '3','४': '4','५': '5','६': '6','७': '7','८': '8','९': '9'
+    })
+    s2 = str(s).translate(dev_map)
+    return re.sub(r"\D", "", s2)
 
 def normalize_date(s: str) -> str:
     """
@@ -87,13 +113,13 @@ def normalize_date(s: str) -> str:
     return ""
 
 def expand_abbreviations(s: str) -> str:
-    """Replace common abbreviations in tokens (st -> street)."""
+    """Replace common abbreviations / Hindi tokens in tokens (st -> street, मार्ग -> road)."""
     if not s:
         return ""
     words = s.split()
     out = []
     for w in words:
-        w_clean = re.sub(r"[^\w]", "", w)  # strip punctuation
+        w_clean = re.sub(r"[^\w]", "", w)
         out.append(ABBR.get(w_clean, w_clean))
     return " ".join(out)
 
@@ -208,7 +234,7 @@ def phone_score(a: str, b: str) -> float:
         return 1.0
 
     # Partial suffix matches (area code differences). Give partial credit.
-    for k, val in ((9, 0.95), (8, 0.9), (7, 0.85)):
+    for k, val in ((9, 0.95), (8, 0.9), (7, 0.85), (6, 0.80)):
         if len(da) >= k and len(db) >= k and da[-k:] == db[-k:]:
             return val
 
@@ -234,9 +260,18 @@ def dob_score(a: str, b: str) -> float:
 def gender_score(a: str, b: str) -> float:
     """Strict gender matching using defined synonym mapping only."""
     mapping = {
+        # English & abbreviations
         "m": "male", "male": "male", "man": "male", "boy": "male",
         "f": "female", "female": "female", "woman": "female", "girl": "female",
-        "other": "other", "others": "other", "nb": "other", "non-binary": "other", "nonbinary": "other"
+        "other": "other", "others": "other", "nb": "other", "non-binary": "other", "nonbinary": "other",
+        # Hindi (native script)
+        "पुरुष": "male", "आदमी": "male", "लड़का": "male", "लड़का": "male", "बालक": "male",
+        "महिला": "female", "स्त्री": "female", "नारी": "female", "लड़की": "female", "लड़की": "female",
+        "अन्य": "other", "दूसरे": "other",
+        # Hindi transliterations (after unidecode approximation)
+        "purush": "male", "aadmi": "male", "ladka": "male", "balak": "male",
+        "mahila": "female", "stree": "female", "naari": "female", "nari": "female", "ladki": "female",
+        "anya": "other", "dusre": "other",
     }
     def norm(x: str) -> str:
         x = (x or "").strip().lower()
