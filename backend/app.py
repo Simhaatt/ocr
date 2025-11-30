@@ -16,6 +16,7 @@ app.add_middleware(
 
 
 app.include_router(mapping_router, prefix="/api/v1")
+app.include_router(verification_router, prefix="/api/v1")
 #add A1 and A3 shit 
 
 @app.get("/")
@@ -24,6 +25,7 @@ def home():
         "message": "MOSIP OCR Field Extraction API",
         "endpoints": {
             "A2 - Field Extraction": "POST /api/v1/extract-fields",
+            "A3 - Verification": "POST /api/v1/verification/verify",
             "Health Check": "GET /api/v1/health"
         }
     }

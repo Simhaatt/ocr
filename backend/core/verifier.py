@@ -254,7 +254,7 @@ def decision_from_confidence(score: float, thresholds=(0.85, 0.6)) -> str:
         return "REVIEW"
     return "MISMATCH"
 
-def aggregate_confidence(ocr_json: Dict[str, Any], user_json: Dict[str, Any], weights: Dict[str, float] = FIELD_WEIGHTS_DEFAULT) -> Tuple[float, Dict[str, float], list]:
+def aggregate_confidence(ocr_json: Dict[str, Any], user_json: Dict[str, Any], weights: Dict[str, float] = None) -> Tuple[float, Dict[str, float], list]:
     """
     Compute per-field scores and a weighted overall confidence.
     Returns (final_score_in_0_1, per_field_scores, notes_list).
@@ -267,13 +267,14 @@ def aggregate_confidence(ocr_json: Dict[str, Any], user_json: Dict[str, Any], we
     scores['gender'] = gender_score(ocr_json.get('gender'), user_json.get('gender'))
 
     # consider only fields present (non-empty) on both sides
-    available = {k: v for k, v in weights.items() if (ocr_json.get(k) not in (None, "")) and (user_json.get(k) not in (None, ""))}
+    effective_weights = weights or FIELD_WEIGHTS_DEFAULT
+    available = {k: v for k, v in effective_weights.items() if (ocr_json.get(k) not in (None, "")) and (user_json.get(k) not in (None, ""))}
     total_w = sum(available.values()) or 1.0
 
     final = 0.0
     notes = []
     for k, w in available.items():
-        final += (available[k] / total_w) * scores[k]
+        final += (w / total_w) * scores[k]
         if scores[k] < 0.6:
             notes.append(f"{k} low_score({scores[k]:.2f})")
     return final, scores, notes
