@@ -3,60 +3,120 @@ from typing import Dict, List
 
 class FieldMapper:
     def __init__(self):
-        self.field_patterns = {
-            # Generic consolidated name (fallback used by existing tests)
-            'name': [
-                # Capture only alphabetic tokens on the same line (avoid spilling into next fields)
-                r'\b(?:Name|Full Name)[:\s]*([A-Za-z][A-Za-z ]{1,})'
-            ],
+        self.field_patterns = self._get_combined_patterns()
+    
+    def _get_combined_patterns(self):
+        """Return patterns that include both Hindi and English"""
+        return {
             'first_name': [
-                r'\b(?:FIRST|FUEST)\s*(?:NAME|MOUNT)[:\s]*([A-Za-z]{2,})'
+                # Hindi patterns
+                r'\b(?:प्रथम|फर्स्ट)\s*नाम[:\s]*([^\n]{2,})',
+                r'\bपहला\s*नाम[:\s]*([^\n]{2,})',
+                # English patterns
+                r'\b(?:FIRST|FUEST)\s*(?:NAME|MOUNT)[:\s]*([A-Za-z]{2,})',
+                r'\bFirst Name[:\s]*([A-Za-z]{2,})'
             ],
             'middle_name': [
-                r'\bMIDDLE\s*NAME[:\s]*([A-Za-z]{2,})'
+                # Hindi
+                r'\bमध्य\s*नाम[:\s]*([^\n]{2,})',
+                r'\bबीच\s*का\s*नाम[:\s]*([^\n]{2,})',
+                # English
+                r'\bMIDDLE\s*NAME[:\s]*([A-Za-z]{2,})',
+                r'\bMiddle Name[:\s]*([A-Za-z]{2,})'
             ],
             'last_name': [
-                r'\bLAST\s*NAME[:\s]*([A-Za-z]{2,})'
+                # Hindi
+                r'\bअंतिम\s*नाम[:\s]*([^\n]{2,})',
+                r'\bआखिरी\s*नाम[:\s]*([^\n]{2,})',
+                # English
+                r'\bLAST\s*NAME[:\s]*([A-Za-z]{2,})',
+                r'\bLast Name[:\s]*([A-Za-z]{2,})'
             ],
             'gender': [
-                r'\b(?:Gender|Chender)[:\s]*([A-Za-z]{2,10})'
+                # Hindi
+                r'\bलिंग[:\s]*([^\n]{4,10})',
+                r'\bजेंडर[:\s]*([^\n]{4,10})',
+                # English
+                r'\b(?:Gender|Chender)[:\s]*([A-Za-z]{4,8})',
+                r'\bSex[:\s]*([A-Za-z]{4,8})'
             ],
             'dob': [
+                # Hindi
+                r'\b(?:जन्म तिथि|जन्मतिथि)[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})',
+                r'\bजन्म\s*दिनांक[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})',
+                # English
                 r'\b(?:Date of birth|DOB)[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})',
-                r'\b(?:Date of birth|DOB)[:\s]*([0-9]{1,2}\s+(?:Jan|January|Feb|February|Mar|March|Apr|April|May|Jun|June|Jul|July|Aug|August|Sep|Sept|September|Oct|October|Nov|November|Dec|December)\s+[0-9]{4})'
+                r'\bBirth Date[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})'
             ],
             'age': [
-                r'\bAge[:\s]*([0-9]{1,3})'
+                # Hindi
+                r'\bउम्र[:\s]*(\d{1,3})',
+                r'\bआयु[:\s]*(\d{1,3})',
+                # English
+                r'\bAge[:\s]*(\d{1,3})',
+                r'\bYears[:\s]*(\d{1,3})'
             ],
             'address_line1': [
-                r'\b(?:ADDRESS|ADDREAS)\s*LINE?\s*1[:\s]*([^\n]{5,})'
+                # Hindi
+                r'\bपता\s*पंक्ति\s*१[:\s]*([^\n]{5,})',
+                r'\bएड्रेस\s*लाइन\s*१[:\s]*([^\n]{5,})',
+                # English
+                r'\b(?:ADDRESS|ADDREAS)\s*LINE?\s*1[:\s]*([^\n]{5,})',
+                r'\bAddress Line 1[:\s]*([^\n]{5,})'
             ],
             'address_line2': [
-                r'\b(?:ADDRESS|ADDREAS)\s*LINE?\s*2[:\s]*([^\n]{5,})'
-            ],
-            # Fallback single-line address used by tests
-            'address': [
-                r'\bAddress[:\s]*([^\n]{5,})'
+                # Hindi
+                r'\bपता\s*पंक्ति\s*२[:\s]*([^\n]{5,})',
+                r'\bएड्रेस\s*लाइन\s*२[:\s]*([^\n]{5,})',
+                # English
+                r'\b(?:ADDRESS|ADDREAS)\s*LINE?\s*2[:\s]*([^\n]{5,})',
+                r'\bAddress Line 2[:\s]*([^\n]{5,})'
             ],
             'city': [
-                r'\bCity[:\s]*([A-Za-z\s]{3,})'
+                # Hindi
+                r'\bशहर[:\s]*([^\n]{3,})',
+                r'\bसिटी[:\s]*([^\n]{3,})',
+                # English
+                r'\bCity[:\s]*([A-Za-z\s]{3,})',
+                r'\bCITY[:\s]*([A-Za-z\s]{3,})'
             ],
             'state': [
-                r'\bSTATE[:\s]*([A-Za-z\s]{3,})'
+                # Hindi
+                r'\bराज्य[:\s]*([^\n]{3,})',
+                r'\bस्टेट[:\s]*([^\n]{3,})',
+                # English
+                r'\bSTATE[:\s]*([A-Za-z\s]{3,})',
+                r'\bState[:\s]*([A-Za-z\s]{3,})'
             ],
             'pincode': [
-                r'\b(?:PIN|Prin)\s*CODE[:\s]*(\d{4,8})'
+                # Hindi
+                r'\b(?:पिन|पिनकोड)[:\s]*(\d{4,8})',
+                r'\bपिन\s*कोड[:\s]*(\d{4,8})',
+                # English
+                r'\b(?:PIN|Prin)\s*CODE[:\s]*(\d{4,8})',
+                r'\bPincode[:\s]*(\d{4,8})'
             ],
             'phone': [
-                r'\b(?:Phone|PHONE)\s*(?:number)?[:\s]*([+0-9\s\-().]{7,})'
+                # Hindi
+                r'\b(?:फोन|टेलीफोन)[:\s]*([+0-9\s\-().]{7,})',
+                r'\bमोबाइल[:\s]*([+0-9\s\-().]{7,})',
+                # English
+                r'\b(?:Phone|PHONE)\s*(?:number)?[:\s]*([+0-9\s\-().]{7,})',
+                r'\bMobile[:\s]*([+0-9\s\-().]{7,})'
             ],
             'email': [
-                r'\b(?:EMAIL|EMAIL ID)[:\s]*([a-zA-Z0-9._%+-@]{5,})'
+                # Hindi
+                r'\b(?:ईमेल|इमेल)[:\s]*([a-zA-Z0-9._%+-@]{5,})',
+                r'\bई-मेल[:\s]*([a-zA-Z0-9._%+-@]{5,})',
+                # English
+                r'\b(?:EMAIL|EMAIL ID)[:\s]*([a-zA-Z0-9._%+-@]{5,})',
+                r'\bE-?mail[:\s]*([a-zA-Z0-9._%+-@]{5,})'
             ]
         }
     
     def extract_fields(self, raw_text: str) -> Dict[str, str]:
         extracted_data = {}
+        name_parts = {}
         
         for field, patterns in self.field_patterns.items():
             for pattern in patterns:
@@ -64,23 +124,32 @@ class FieldMapper:
                 if match:
                     raw_value = match.group(1).strip()
                     cleaned_value = self.clean_field(field, raw_value)
-                    extracted_data[field] = cleaned_value
+                    
+                    # Handle name parts separately
+                    if field in ['first_name', 'middle_name', 'last_name']:
+                        name_parts[field] = cleaned_value
+                    else:
+                        extracted_data[field] = cleaned_value
                     break
         
-        # Prefer explicit 'name' if captured; otherwise assemble from parts
-        if 'name' not in extracted_data and all(k in extracted_data for k in ['first_name', 'last_name']):
-            first = extracted_data.pop('first_name')
-            middle = extracted_data.pop('middle_name', '')
-            last = extracted_data.pop('last_name')
+        # Combine name parts
+        if name_parts:
+            first = name_parts.get('first_name', '')
+            middle = name_parts.get('middle_name', '')
+            last = name_parts.get('last_name', '')
             full_name = f"{first} {middle} {last}".strip()
-            extracted_data['name'] = ' '.join(full_name.split())
+            if full_name:
+                extracted_data['name'] = ' '.join(full_name.split())
         
-    
-        # Prefer explicit 'address'; otherwise concatenate lines
-        if 'address' not in extracted_data and all(k in extracted_data for k in ['address_line1', 'address_line2']):
+        # Combine address lines
+        if all(k in extracted_data for k in ['address_line1', 'address_line2']):
             addr1 = extracted_data.pop('address_line1')
             addr2 = extracted_data.pop('address_line2')
             extracted_data['address'] = f"{addr1} {addr2}".strip()
+        elif 'address_line1' in extracted_data:
+            extracted_data['address'] = extracted_data.pop('address_line1')
+        elif 'address_line2' in extracted_data:
+            extracted_data['address'] = extracted_data.pop('address_line2')
         
         return extracted_data
     
@@ -91,49 +160,68 @@ class FieldMapper:
             return re.sub(r'[\s().-]', '', raw_value)
         
         elif field_name == 'email':
-            
             cleaned = raw_value.lower()
-            cleaned = re.sub(r'\s+', '', cleaned)  
-            cleaned = re.sub(r'qmail', 'gmail', cleaned)  
+            cleaned = re.sub(r'\s+', '', cleaned)
+            cleaned = re.sub(r'qmail', 'gmail', cleaned)
             return cleaned
         
         elif field_name == 'pincode':
             digits = re.sub(r'\D', '', raw_value)
-            return digits[:6]  
+            return digits[:6] if digits else raw_value
         
         elif field_name in ['first_name', 'middle_name', 'last_name']:
-        
             return raw_value.title()
         
         return raw_value
     
     def get_missing_fields(self, extracted_data: Dict[str, str]) -> List[str]:
-        expected_fields = ['name', 'dob', 'age', 'gender', 'address', 'phone', 'email']
-        return [f for f in expected_fields if f not in extracted_data]
+        expected_fields = ['name', 'age', 'gender', 'address', 'phone', 'email']
+        return [field for field in expected_fields if field not in extracted_data]
 
 
+# Create mapper instance
 field_mapper = FieldMapper()
 
 
 def test_mapper():
-    test_text = """
-    FUEST MOUNT : ABIQGLA
-MIDDLE NAME: CHARGE
-LAST NAME SUMMARY
-Chender : Female 1987
-Date of birth : 27-09-000 .
-ADDRESS LIMEI : READ #1, STREET #2
-ADDREAS LINE2: HSR LAYEN
-" City : Bangalore 0 0 0 0
-STATE: KAWAYAYAYA LAKE
-Prin Code : 56000680008
-" Phone number : 9987659110.
-EMAIL ID. ABIQAL@ QMAIL.COM
+    """Test with both English and Hindi"""
+    
+    english_text = """
+    FIRST NAME: Abigail
+    MIDDLE NAME: Grace  
+    LAST NAME: Summer
+    Gender: Female
+    Date of birth: 27-09-2000
+    Address Line1: Road#1, Street #2
+    City: Bangalore
+    Pin Code: 560068
+    Phone number: 9987659110
+    Email Id: abigail@gmail.com
+    """
+    
+    hindi_text = """
+    प्रथम नाम: राजेश
+    मध्य नाम: कुमार
+    अंतिम नाम: शर्मा
+    लिंग: पुरुष
+    जन्म तिथि: 15-03-1995
+    पता पंक्ति १: १२३, एमजी रोड
+    शहर: दिल्ली
+    पिनकोड: ११०००१
+    फोन: ९८७६५४३२१०
+    ईमेल: rajes@example.com
     """
     
     mapper = FieldMapper()
-    result = mapper.extract_fields(test_text)
-    print("Test Result:", result)
+    
+    print("=== English Text ===")
+    result_en = mapper.extract_fields(english_text)
+    print(result_en)
+    
+    print("\n=== Hindi Text ===")
+    result_hi = mapper.extract_fields(hindi_text)
+    print(result_hi)
+
 
 if __name__ == "__main__":
     test_mapper()
