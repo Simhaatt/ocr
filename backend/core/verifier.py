@@ -232,21 +232,17 @@ def dob_score(a: str, b: str) -> float:
     return 0.0
 
 def gender_score(a: str, b: str) -> float:
-    """Match gender including common shorthand and synonyms."""
-    def norm_gender(x: str) -> str:
+    """Strict gender matching using defined synonym mapping only."""
+    mapping = {
+        "m": "male", "male": "male", "man": "male", "boy": "male",
+        "f": "female", "female": "female", "woman": "female", "girl": "female",
+        "other": "other", "others": "other", "nb": "other", "non-binary": "other", "nonbinary": "other"
+    }
+    def norm(x: str) -> str:
         x = (x or "").strip().lower()
-        if not x:
-            return ""
-        if x in {"m", "male", "man", "boy"} or x.startswith("m"):
-            return "male"
-        if x in {"f", "female", "woman", "girl"} or x.startswith("f"):
-            return "female"
-        if x in {"other", "others", "o", "nb", "non-binary", "nonbinary"}:
-            return "other"
-        return x
-
-    an = norm_gender(a)
-    bn = norm_gender(b)
+        return mapping.get(x, x)
+    an = norm(a)
+    bn = norm(b)
     return 1.0 if an and an == bn else 0.0
 
 def decision_from_confidence(score: float, thresholds=(0.85, 0.6)) -> str:

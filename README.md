@@ -18,7 +18,35 @@ mosip-ocr-project/
 │   └── 📁 uploads/
 │
 └── 📁 frontend/            # TEAM B WORKSPACE (You)
-    ├── index.html          # Your Single Page Application
-    ├── styles.css          # Your Custom CSS
-    ├── app.js              # API Calls & UI Logic
-    └── 📁 assets/          # Images/Icons
+     ├── index.html          # Your Single Page Application
+     ├── styles.css          # Your Custom CSS
+     ├── app.js              # API Calls & UI Logic
+     └── 📁 assets/          # Images/Icons
+
+## Testing
+
+This project uses `pytest` for minimal verification of mapper + verifier integration.
+
+Current tests (combined in `tests/test_age_note.py`):
+- `test_age_mismatch_note`: Ensures an `age_mismatch(...)` note is added when the stated age differs from the age derived from `DOB` by more than 1 year.
+- `test_age_consistent_no_mismatch`: Verifies no `age_mismatch` note is produced when the stated age matches the derived age (computed dynamically to avoid drifting with time).
+
+### Running Tests
+
+1. Activate the virtual environment (if present):
+    ```powershell
+    .\.venv\Scripts\Activate.ps1
+    ```
+2. Install backend dependencies:
+    ```powershell
+    python -m pip install -r backend\requirements.txt
+    ```
+3. Run pytest:
+    ```powershell
+    python -m pytest -q
+    ```
+
+### Notes
+- Age is not part of the verification confidence score; it only contributes informational notes.
+- The test file derives the expected age from the DOB to remain stable over time.
+- Add more tests if field coverage (e.g., address/phone edge cases) becomes necessary.
