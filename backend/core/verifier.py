@@ -157,15 +157,32 @@ def normalize_full(s: str, field_type: str = "generic") -> str:
 FIELD_WEIGHTS_DEFAULT = {"name":0.35, "dob":0.30, "phone":0.15, "address":0.15, "gender":0.05}
 
 def name_score(a: str, b: str) -> float:
-    """Return best-of-three fuzzy metrics for names (0..1)."""
+    """Return robust fuzzy score for names (0..1)."""
     a_n = normalize_full(a, "generic")
     b_n = normalize_full(b, "generic")
     if not a_n or not b_n:
         return 0.0
-    s1 = fuzz.ratio(a_n, b_n)                 # basic edit-distance percentage
-    s2 = fuzz.token_sort_ratio(a_n, b_n)      # ignores word order
-    s3 = fuzz.partial_ratio(a_n, b_n)         # substring handling
-    return max(s1, s2, s3) / 100.0
+    s1 = fuzz.ratio(a_n, b_n)
+    s2 = fuzz.token_sort_ratio(a_n, b_n)
+    s3 = fuzz.partial_ratio(a_n, b_n)
+    best = max(s1, s2, s3) / 100.0
+    toks_a = a_n.split()
+    toks_b = b_n.split()
+    # Boost for token permutations (order variance)
+    if set(toks_a) == set(toks_b) and len(toks_a) == len(toks_b):
+        best = max(best, 0.95)
+    # Mild boost for prefix truncation (e.g., 'Ramesh K' vs 'Ramesh Kumar')
+    if len(toks_a) == len(toks_b) - 1:
+        if all(toks_a[i] == toks_b[i] for i in range(len(toks_a)-1)) and toks_b[-1].startswith(toks_a[-1]):
+            best = max(best, 0.85)
+    # Abbreviation case same length: last token of shorter is prefix of last token of longer form
+    if len(toks_a) == len(toks_b) == 2:
+        if toks_a[0] == toks_b[0] and (toks_a[1].startswith(toks_b[1]) or toks_b[1].startswith(toks_a[1])):
+            best = max(best, 0.85)
+    # Specific reversal boost for two-token names
+    if len(toks_a) == len(toks_b) == 2 and toks_a[0] == toks_b[1] and toks_a[1] == toks_b[0]:
+        best = max(best, 0.95)
+    return best
 
 def address_score(a: str, b: str) -> float:
     """Use multiple fuzzy strategies + token overlap bonuses (0..1)."""

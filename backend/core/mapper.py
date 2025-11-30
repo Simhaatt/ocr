@@ -4,6 +4,11 @@ from typing import Dict, List
 class FieldMapper:
     def __init__(self):
         self.field_patterns = {
+            # Generic consolidated name (fallback used by existing tests)
+            'name': [
+                # Capture only alphabetic tokens on the same line (avoid spilling into next fields)
+                r'\b(?:Name|Full Name)[:\s]*([A-Za-z][A-Za-z ]{1,})'
+            ],
             'first_name': [
                 r'\b(?:FIRST|FUEST)\s*(?:NAME|MOUNT)[:\s]*([A-Za-z]{2,})'
             ],
@@ -14,16 +19,24 @@ class FieldMapper:
                 r'\bLAST\s*NAME[:\s]*([A-Za-z]{2,})'
             ],
             'gender': [
-                r'\b(?:Gender|Chender)[:\s]*([A-Za-z]{4,8})'
+                r'\b(?:Gender|Chender)[:\s]*([A-Za-z]{2,10})'
             ],
             'dob': [
-                r'\b(?:Date of birth|DOB)[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})'
+                r'\b(?:Date of birth|DOB)[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})',
+                r'\b(?:Date of birth|DOB)[:\s]*([0-9]{1,2}\s+(?:Jan|January|Feb|February|Mar|March|Apr|April|May|Jun|June|Jul|July|Aug|August|Sep|Sept|September|Oct|October|Nov|November|Dec|December)\s+[0-9]{4})'
+            ],
+            'age': [
+                r'\bAge[:\s]*([0-9]{1,3})'
             ],
             'address_line1': [
                 r'\b(?:ADDRESS|ADDREAS)\s*LINE?\s*1[:\s]*([^\n]{5,})'
             ],
             'address_line2': [
                 r'\b(?:ADDRESS|ADDREAS)\s*LINE?\s*2[:\s]*([^\n]{5,})'
+            ],
+            # Fallback single-line address used by tests
+            'address': [
+                r'\bAddress[:\s]*([^\n]{5,})'
             ],
             'city': [
                 r'\bCity[:\s]*([A-Za-z\s]{3,})'
@@ -54,15 +67,17 @@ class FieldMapper:
                     extracted_data[field] = cleaned_value
                     break
         
-        if all(k in extracted_data for k in ['first_name', 'last_name']):
+        # Prefer explicit 'name' if captured; otherwise assemble from parts
+        if 'name' not in extracted_data and all(k in extracted_data for k in ['first_name', 'last_name']):
             first = extracted_data.pop('first_name')
             middle = extracted_data.pop('middle_name', '')
             last = extracted_data.pop('last_name')
             full_name = f"{first} {middle} {last}".strip()
-            extracted_data['name'] = ' '.join(full_name.split())  
+            extracted_data['name'] = ' '.join(full_name.split())
         
     
-        if all(k in extracted_data for k in ['address_line1', 'address_line2']):
+        # Prefer explicit 'address'; otherwise concatenate lines
+        if 'address' not in extracted_data and all(k in extracted_data for k in ['address_line1', 'address_line2']):
             addr1 = extracted_data.pop('address_line1')
             addr2 = extracted_data.pop('address_line2')
             extracted_data['address'] = f"{addr1} {addr2}".strip()
