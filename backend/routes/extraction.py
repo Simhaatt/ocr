@@ -10,6 +10,7 @@ import os
 
 # Import A1's OCR logic
 from ..core.ocr import process_input
+from ..core.mapper import field_mapper
 
 router = APIRouter(prefix="/ocr", tags=["OCR Extraction"])
 
@@ -68,44 +69,38 @@ async def extract_and_map(file: UploadFile = File(...)):
     Returns both raw text and mapped fields
     """
     try:
-        # First, extract text using A1's OCR
-        ocr_result = await extract_text_from_file(file)
-        
-        if ocr_result.status != "success":
-            return {
-                "status": "error",
-                "message": "OCR extraction failed"
-            }
-        
-        # Call A2's field extraction API 
-        import requests
-        a2_response = requests.post(
-            "http://localhost:8000/api/v1/extract-fields",
-            json={
-                "raw_text": ocr_result.extracted_text,
-                "document_type": "id_card" if ocr_result.file_type == "image" else "form"
-            }
-        )
-        
-        if a2_response.status_code == 200:
-            a2_data = a2_response.json()
-            return {
+        # First, extract text using A1's OCR (reuse local function to avoid self-HTTP deadlock)
+        # Save file temporarily and call process_input
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_path = tmp_file.name
+
+        try:
+            extracted_text = process_input(tmp_path)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        # Then map fields locally via field_mapper (A2 logic as library)
+        extracted_fields = field_mapper.extract_fields(extracted_text or "")
+        missing_fields = field_mapper.get_missing_fields(extracted_fields)
+
+        return {
+            "status": "success",
+            "ocr_extraction": {
+                "raw_text": extracted_text,
+                "file_type": (os.path.splitext(file.filename)[1].lower() == ".pdf") and "pdf" or "image",
+            },
+            "field_extraction": {
                 "status": "success",
-                "ocr_extraction": {
-                    "raw_text": ocr_result.extracted_text,
-                    "file_type": ocr_result.file_type
-                },
-                "field_extraction": a2_data  
-            }
-        else:
-            return {
-                "status": "partial_success",
-                "ocr_extraction": {
-                    "raw_text": ocr_result.extracted_text,
-                    "file_type": ocr_result.file_type
-                },
-                "field_extraction_error": a2_response.text
-            }
+                "extracted_fields": extracted_fields,
+                "fields_count": len(extracted_fields),
+                "missing_fields": missing_fields,
+            },
+        }
             
     except Exception as e:
         raise HTTPException(

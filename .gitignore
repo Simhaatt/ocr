@@ -208,6 +208,7 @@ __marimo__/
 
 # Project-specific runtime artifacts
 backend/uploads/
+backend/verification_requests.jsonl
 
 # OS-specific files
 .DS_Store

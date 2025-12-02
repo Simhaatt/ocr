@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, UTC
 import os
 
 # Import your core verification logic (make sure path is correct)
@@ -94,7 +94,7 @@ def log_request(ocr: Dict[str, Any], user: Dict[str, Any], response: Dict[str, A
     """
     try:
         entry = {
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "ocr": ocr,
             "user": user,
             "response": response
@@ -137,7 +137,7 @@ def verify_endpoint(req: VerifyRequest):
                 except Exception:
                     continue
             if parsed:
-                today = datetime.utcnow().date()
+                today = datetime.now(UTC).date()
                 derived_age = int((today - parsed).days / 365.25)
                 try:
                     stated_age = int(ocr["age"])

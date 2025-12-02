@@ -1,4 +1,7 @@
-from paddleocr import PaddleOCR
+try:
+    from paddleocr import PaddleOCR
+except Exception:
+    PaddleOCR = None
 import os
 import cv2 as cv
 import numpy as np
@@ -36,13 +39,9 @@ def preprocess(IMG: Union[str, np.ndarray]) -> np.ndarray:
     return bgr
 
 
-ocr = PaddleOCR(lang='hi', use_textline_orientation=False, use_doc_orientation_classify=False, use_doc_unwarping=False)
+ocr = None
 
-image_path = r"C:\Users\rohit\Downloads\printed_hindi.jpg" # Path to the image file for OCR
-# Directory to save visualized OCR results from the predict API
-
-
-print(f"Performing OCR on: {image_path} using ocr.predict() API")
+image_path = r"C:\Users\hp\Downloads\Screenshot 2025-12-02 225712.png" # Example path; used for smoke test
 # ocr.predict() returns a list of OCRResult objects.
 # For a single image, this list usually contains one OCRResult object.
 # This OCRResult object then contains the actual recognition data.
@@ -50,49 +49,47 @@ print(f"Performing OCR on: {image_path} using ocr.predict() API")
 #preprocess:
 
 
+def _get_ocr():
+    global ocr
+    if ocr is None:
+        if PaddleOCR is None:
+            raise ImportError("PaddleOCR runtime not available. Please install paddlepaddle and paddleocr.")
+        ocr = PaddleOCR(lang='hi', use_textline_orientation=False, use_doc_orientation_classify=False, use_doc_unwarping=False)
+    return ocr
+
 def paddleocr(preprocessed_image: Union[str, np.ndarray]) -> str:
+    """Run PaddleOCR on an image (path or ndarray) and return concatenated text.
+
+    Uses the stable `ocr()` API from PaddleOCR. Handles typical return formats.
+    """
     img = preprocess(preprocessed_image)
-    prediction_results = ocr.predict(img)
+    predictor = _get_ocr()
 
-    if prediction_results:
-        print("\nOCR Prediction Results:")
-        all_extracted_texts = []      
-        
-        # Iterate through the list of OCRResult objects
-        # (typically one item for a single image)
-        for i, res_obj in enumerate(prediction_results):
-            # Text extraction
-            item_text = None
-            # Text is found within res_obj.json['res']['rec_texts']
-            if hasattr(res_obj, 'json') and isinstance(res_obj.json, dict):
-                json_data = res_obj.json
-                if 'res' in json_data and isinstance(json_data['res'], dict):
-                    res_content = json_data['res']
-                    if 'rec_texts' in res_content and isinstance(res_content['rec_texts'], list):
-                        # Filter out empty strings and join the meaningful recognized texts
-                        meaningful_texts = [text for text in res_content['rec_texts'] if isinstance(text, str) and text.strip()]
-                        if meaningful_texts:
-                            item_text = "\n".join(meaningful_texts)
-                    
-            
-            if item_text:
-                all_extracted_texts.append(item_text)
-            else:
-                # If text is not extracted, print a warning and the raw result object for debugging
-                print(f"Warning: Could not extract text for result item {i+1}.")
-                if hasattr(res_obj, 'print'): # Print the raw result object if text extraction failed
-                    #print(f"--- Raw result object {i+1} for debugging ---")
-                    res_obj.print()
-                    #print(f"--- End of raw result object {i+1} ---")
+    # Call the standard OCR API. It returns a nested list structure.
+    results = predictor.ocr(img, det=True, rec=True, cls=False)
 
-        if all_extracted_texts:
-            return "\n---\n".join(all_extracted_texts)
-        else:
-            return ""
+    extracted_texts = []
+    if not results:
+        print("OCR returned no results.")
+        return ""
 
+    # For single image input, results is often a list with one inner list of lines
+    # Normalize to a flat list of line entries
+    if len(results) == 1 and isinstance(results[0], list):
+        lines = results[0]
+    else:
+        lines = results
 
-    else: # This corresponds to `if prediction_results:`
-        print("OCR (ocr.predict() API) returned no results or an empty result (initial check).")
+    for item in lines:
+        # Expected shape per line: [box, (text, score)]
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            rec_part = item[1]
+            if isinstance(rec_part, (list, tuple)) and rec_part:
+                text = rec_part[0]
+                if isinstance(text, str) and text.strip():
+                    extracted_texts.append(text.strip())
+
+    return "\n".join(extracted_texts)
 
 def process_input(inp):
     ext = os.path.splitext(inp)[1].lower()
@@ -127,4 +124,9 @@ def process_input(inp):
     else:
         raise ValueError("Unsupported file type: " + ext)
         
-print(process_input(image_path))
+if __name__ == "__main__":
+    print(f"Performing OCR on: {image_path} using ocr.predict() API")
+    try:
+        print(process_input(image_path))
+    except Exception as e:
+        print("OCR run failed:", e)

@@ -8,6 +8,12 @@ class FieldMapper:
     def _get_combined_patterns(self):
         """Return patterns that include both Hindi and English"""
         return {
+            'name': [
+                # Generic single-line name capture (English/Hindi labels)
+                r'\bName[:\s]*([^\n]{2,})',
+                r'\bNAME[:\s]*([^\n]{2,})',
+                r'\bनाम[:\s]*([^\n]{2,})',
+            ],
             'first_name': [
                 # Hindi patterns
                 r'\b(?:प्रथम|फर्स्ट)\s*नाम[:\s]*([^\n]{2,})',
@@ -34,11 +40,11 @@ class FieldMapper:
             ],
             'gender': [
                 # Hindi
-                r'\bलिंग[:\s]*([^\n]{4,10})',
-                r'\bजेंडर[:\s]*([^\n]{4,10})',
+                r'\bलिंग[:\s]*([^\n]{2,10})',
+                r'\bजेंडर[:\s]*([^\n]{2,10})',
                 # English
-                r'\b(?:Gender|Chender)[:\s]*([A-Za-z]{4,8})',
-                r'\bSex[:\s]*([A-Za-z]{4,8})'
+                r'\b(?:Gender|Chender)[:\s]*([A-Za-z]{2,10})',
+                r'\bSex[:\s]*([A-Za-z]{2,10})'
             ],
             'dob': [
                 # Hindi
@@ -46,7 +52,10 @@ class FieldMapper:
                 r'\bजन्म\s*दिनांक[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})',
                 # English
                 r'\b(?:Date of birth|DOB)[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})',
-                r'\bBirth Date[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})'
+                r'\bBirth Date[:\s]*([0-9]{1,2}[\-/][0-9]{1,2}[\-/][0-9]{2,4})',
+                # Month name variants e.g., 19 Apr 2001 / Apr 19, 2001
+                r'\b(?:DOB|Date of birth|Birth Date)[:\s]*([0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{4})',
+                r'\b(?:DOB|Date of birth|Birth Date)[:\s]*([A-Za-z]{3,9}\s+[0-9]{1,2},\s*[0-9]{4})'
             ],
             'age': [
                 # Hindi
@@ -71,6 +80,12 @@ class FieldMapper:
                 # English
                 r'\b(?:ADDRESS|ADDREAS)\s*LINE?\s*2[:\s]*([^\n]{5,})',
                 r'\bAddress Line 2[:\s]*([^\n]{5,})'
+            ],
+            'address': [
+                # Generic single-line address capture
+                r'\bAddress[:\s]*([^\n]{5,})',
+                r'\bADDRESS[:\s]*([^\n]{5,})',
+                r'\bपता[:\s]*([^\n]{5,})',
             ],
             'city': [
                 # Hindi

@@ -1,12 +1,14 @@
 // --- CONFIGURATION ---
-const BASE_URL = "http://localhost:8000";
+// Prefer IPv4 loopback to avoid localhost/::1 vs 0.0.0.0 binding issues
+const API_HOST = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? '127.0.0.1' : location.hostname;
+const BASE_URL = `http://${API_HOST}:8000`;
 const ENDPOINTS = {
-   
-    extract: `${BASE_URL}/api/v1/extract-fields`, 
-    
-    map:     `${BASE_URL}/api/v1/map-and-verify`,
-    
-    submit:  `${BASE_URL}/api/v1/submit` 
+    // Upload file and get raw text + initial fields in one go
+    extractAndMap: `${BASE_URL}/api/v1/ocr/extract-and-map`,
+    // Map + verify structured fields using raw_text and a user object
+    map: `${BASE_URL}/api/v1/map-and-verify`,
+    // Optional final submit endpoint (not implemented server-side); we fallback to download
+    submit: `${BASE_URL}/api/v1/submit`
 };
 
 // --- DOM ELEMENTS ---
@@ -21,9 +23,17 @@ const fileInput = document.getElementById('fileInput');
 const loadingSpinner = document.getElementById('loading-spinner');
 const verifyForm = document.getElementById('verify-form');
 const previewImg = document.getElementById('preview-img');
+const previewPdf = document.getElementById('preview-pdf');
 const uploadZone = document.querySelector('.upload-zone');
+const rawTextEl = document.getElementById('raw-text');
+const userForm = document.getElementById('user-form');
+const btnReverify = document.getElementById('btn-reverify');
+const decisionBadge = document.getElementById('decision-badge');
+const overallScoreEl = document.getElementById('overall-score');
+const fieldScoresEl = document.getElementById('field-scores');
 
 let currentObjectUrl = null; // Track image memory for privacy cleanup
+let lastRawText = "";
 
 // --- SWITCH SCREENS ---
 function switchView(viewName) {
@@ -41,39 +51,50 @@ fileInput.addEventListener('change', async (e) => {
         URL.revokeObjectURL(currentObjectUrl);
     }
     currentObjectUrl = URL.createObjectURL(file);
-    previewImg.src = currentObjectUrl;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (ext === 'pdf') {
+        previewImg.classList.add('d-none');
+        previewPdf.classList.remove('d-none');
+        previewPdf.src = currentObjectUrl;
+    } else {
+        previewPdf.classList.add('d-none');
+        previewImg.classList.remove('d-none');
+        previewImg.src = currentObjectUrl;
+    }
 
     // 2. UI UPDATES
     document.querySelector('.upload-zone').classList.add('d-none');
     loadingSpinner.classList.remove('d-none');
 
     const formData = new FormData();
-    formData.append('document', file);
+    // Backend expects field name 'file'
+    formData.append('file', file);
 
     try {
-        console.log("🚀 Step 1: Sending to Extraction...");
-        // STEP A: Extract Text
-        const extractRes = await fetch(ENDPOINTS.extract, { method: 'POST', body: formData });
-        if (!extractRes.ok) throw new Error(`Extraction Failed: ${extractRes.status}`);
-        
-        const extractJson = await extractRes.json();
-        const rawText = extractJson.raw_text || extractJson.data?.raw_text || "";
+        console.log("🚀 Step 1: Uploading to /ocr/extract-and-map...");
+        // STEP A: Upload and get OCR + initial mapped fields
+        const exRes = await fetch(ENDPOINTS.extractAndMap, { method: 'POST', body: formData });
+        if (!exRes.ok) throw new Error(`Extract+Map Failed: ${exRes.status}`);
+        const exJson = await exRes.json();
+        const rawText = exJson?.ocr_extraction?.raw_text || "";
+        lastRawText = rawText;
+        if (rawTextEl) rawTextEl.textContent = rawText || "<no text>";
+        const initialMapped = exJson?.field_extraction?.extracted_fields || {};
 
-        console.log("🚀 Step 2: Sending to Verification...");
-        // STEP B: Map & Verify
-        const mapRes = await fetch(ENDPOINTS.map, {
+        console.log("🚀 Step 2: Map & Verify on backend...");
+        // STEP B: Map & Verify again using raw_text, and use initialMapped as user (self-verify baseline)
+        const mvRes = await fetch(ENDPOINTS.map, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ raw_text: rawText, user: {} })
+            body: JSON.stringify({ raw_text: rawText, user: initialMapped })
         });
-        
-        if (!mapRes.ok) throw new Error(`Mapping Failed: ${mapRes.status}`);
-        
-        const mapJson = await mapRes.json();
-        // Handle different JSON structures from backend
-        const fields = mapJson.data || mapJson.mapped_fields || mapJson.mapped || mapJson;
+        if (!mvRes.ok) throw new Error(`Map+Verify Failed: ${mvRes.status}`);
+        const mvJson = await mvRes.json();
 
-        renderForm(fields);
+        // Update summary, mapped fields, and prefill user form
+        renderSummary(mvJson?.verification);
+        renderForm(mvJson);
+        fillUserForm(initialMapped);
         switchView('view-verify');
 
     } catch (err) {
@@ -141,6 +162,69 @@ function renderForm(data) {
         `;
         verifyForm.insertAdjacentHTML('beforeend', html);
     }
+}
+
+function renderSummary(verification) {
+    if (!verification) {
+        decisionBadge.textContent = 'PENDING';
+        decisionBadge.className = 'badge bg-secondary';
+        overallScoreEl.textContent = '-';
+        fieldScoresEl.textContent = '';
+        return;
+    }
+    const decision = verification.decision || 'PENDING';
+    const score = verification.overall_confidence != null ? (verification.overall_confidence * 100).toFixed(0) + '%' : '-';
+    overallScoreEl.textContent = score;
+    if (decision === 'MATCH') {
+        decisionBadge.textContent = 'MATCH';
+        decisionBadge.className = 'badge bg-success';
+    } else if (decision === 'REVIEW') {
+        decisionBadge.textContent = 'REVIEW';
+        decisionBadge.className = 'badge bg-warning text-dark';
+    } else {
+        decisionBadge.textContent = 'MISMATCH';
+        decisionBadge.className = 'badge bg-danger';
+    }
+    const fields = verification.fields || {};
+    const parts = [];
+    for (const [k, v] of Object.entries(fields)) {
+        parts.push(`${k}: ${(v * 100).toFixed(0)}%`);
+    }
+    fieldScoresEl.textContent = parts.join(' | ');
+}
+
+function fillUserForm(obj) {
+    if (!userForm || !obj) return;
+    const set = (name, v) => {
+        const el = userForm.querySelector(`[name="${name}"]`);
+        if (el && v != null) el.value = v;
+    };
+    set('name', obj.name || '');
+    set('dob', obj.dob || '');
+    set('phone', obj.phone || '');
+    set('gender', obj.gender || '');
+    set('address', obj.address || '');
+}
+
+if (btnReverify) {
+    btnReverify.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+            const user = Object.fromEntries(new FormData(userForm).entries());
+            const mvRes = await fetch(ENDPOINTS.map, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw_text: lastRawText || '', user })
+            });
+            if (!mvRes.ok) throw new Error(`Map+Verify Failed: ${mvRes.status}`);
+            const mvJson = await mvRes.json();
+            renderSummary(mvJson?.verification);
+            renderForm(mvJson);
+        } catch (err) {
+            console.error(err);
+            alert(`Re-Verify error: ${err.message}`);
+        }
+    });
 }
 
 // --- SUBMIT DATA (Privacy & Fallback Version) ---
