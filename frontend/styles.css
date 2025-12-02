@@ -1,6 +1,30 @@
-body { font-family: Arial, sans-serif; margin: 1.5rem; background:#f7f9fb; }
-header { margin-bottom: 1.5rem; }
-section { background:#fff; padding:1rem; margin-bottom:1rem; border:1px solid #ddd; border-radius:6px; }
-button { cursor:pointer; padding:0.5rem 1rem; margin-top:0.5rem; }
-pre { background:#272822; color:#f8f8f2; padding:0.75rem; border-radius:4px; overflow:auto; }
-textarea { width:100%; height:120px; }
+:root {
+    --mosip-green: #00A388;
+    --mosip-dark: #2C3E50;
+}
+
+body { background-color: #f4f6f8; font-family: 'Inter', sans-serif; }
+
+.bg-mosip { background-color: var(--mosip-dark) !important; }
+.text-mosip { color: var(--mosip-green) !important; }
+
+.btn-mosip {
+    background-color: var(--mosip-green);
+    color: white;
+    border: none;
+    font-weight: 600;
+}
+.btn-mosip:hover { background-color: #008f75; color: white; }
+
+.fade-in { animation: fadeIn 0.4s ease-in-out; }
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+/* Drag & Drop Visual State */
+.upload-zone.drag-over {
+    background-color: #e0f7fa !important; /* Light Teal */
+    border-color: var(--mosip-green) !important;
+    transform: scale(1.02);
+    transition: all 0.2s ease;
+}

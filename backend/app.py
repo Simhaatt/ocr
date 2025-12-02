@@ -17,6 +17,7 @@ app.add_middleware(
 
 app.include_router(mapping_router, prefix="/api/v1")
 app.include_router(verification_router, prefix="/api/v1")
+app.include_router(extraction_router, prefix="/api/v1")
 #add A1 and A3 shit 
 
 @app.get("/")
