@@ -154,7 +154,7 @@ def normalize_full(s: str, field_type: str = "generic") -> str:
 # -----------------------------
 # Scoring / fuzzy functions
 # -----------------------------
-FIELD_WEIGHTS_DEFAULT = {"name":0.35, "dob":0.30, "phone":0.15, "address":0.15, "gender":0.05}
+FIELD_WEIGHTS_DEFAULT = {"name":0.30, "dob":0.25, "age":0.10, "phone":0.15, "address":0.15, "gender":0.05}
 
 def name_score(a: str, b: str) -> float:
     """Return robust fuzzy score for names (0..1)."""
@@ -274,6 +274,17 @@ def dob_score(a: str, b: str) -> float:
         return 1.0 if da == db else 0.0
     return 0.0
 
+def age_score(a: str, b: str) -> float:
+    """Numeric equality for ages with Devanagari digit support."""
+    da = normalize_digits(a)
+    db = normalize_digits(b)
+    if da and db:
+        try:
+            return 1.0 if int(da) == int(db) else 0.0
+        except Exception:
+            return 0.0
+    return 0.0
+
 def gender_score(a: str, b: str) -> float:
     """Strict gender matching using defined synonym mapping only."""
     mapping = {
@@ -314,6 +325,7 @@ def aggregate_confidence(ocr_json: Dict[str, Any], user_json: Dict[str, Any], we
     scores = {}
     scores['name'] = name_score(ocr_json.get('name'), user_json.get('name'))
     scores['dob']  = dob_score(ocr_json.get('dob'), user_json.get('dob'))
+    scores['age']  = age_score(ocr_json.get('age'), user_json.get('age'))
     scores['phone'] = phone_score(ocr_json.get('phone'), user_json.get('phone'))
     scores['address'] = address_score(ocr_json.get('address'), user_json.get('address'))
     scores['gender'] = gender_score(ocr_json.get('gender'), user_json.get('gender'))

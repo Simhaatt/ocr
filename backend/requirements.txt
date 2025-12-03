@@ -9,4 +9,5 @@ numpy==1.26.4
 opencv-python==4.10.0.84
 PyMuPDF==1.24.9
 paddleocr==2.9.0
+pytesseract
 python-multipart==0.0.9

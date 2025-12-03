@@ -1,5 +1,6 @@
 import re
 from typing import Dict, List
+from rapidfuzz import fuzz
 
 class FieldMapper:
     def __init__(self):
@@ -132,6 +133,52 @@ class FieldMapper:
     def extract_fields(self, raw_text: str) -> Dict[str, str]:
         extracted_data = {}
         name_parts = {}
+        # 1) Fuzzy label-value parsing to handle noisy labels
+        lines = [l.strip() for l in (raw_text or "").splitlines() if l.strip()]
+        canonical = {
+            'name': ['name','first name','last name','middle name'],
+            'gender': ['gender','sex'],
+            'dob': ['date of birth','dob','birth date'],
+            'address_line1': ['address line1','address line 1'],
+            'address_line2': ['address line2','address line 2'],
+            'address': ['address'],
+            'city': ['city'],
+            'state': ['state'],
+            'pincode': ['pin code','pincode','pin'],
+            'phone': ['phone number','phone','mobile'],
+            'email': ['email id','email','e-mail'],
+            'age': ['age','years']
+        }
+        def best_label(head: str) -> str:
+            h = head.lower().strip()
+            best = None
+            best_s = 0
+            for key, opts in canonical.items():
+                for opt in opts:
+                    s = fuzz.ratio(h, opt)
+                    if s > best_s:
+                        best_s = s
+                        best = key
+            return best if best_s >= 70 else None
+        for ln in lines:
+            # split on first ':' or similar separators
+            m = None
+            for sep in [':','-','—','–']:
+                if sep in ln:
+                    parts = ln.split(sep, 1)
+                    if len(parts) == 2:
+                        head, val = parts[0].strip(), parts[1].strip()
+                        lab = best_label(head)
+                        if lab:
+                            cleaned_value = self.clean_field(lab, val)
+                            if lab in ['first_name','middle_name','last_name']:
+                                name_parts[lab] = cleaned_value
+                            else:
+                                # Do not overwrite if already filled by regex later
+                                extracted_data.setdefault(lab, cleaned_value)
+                            break
+            
+        # 2) Regex-based extraction as a fallback
         
         for field, patterns in self.field_patterns.items():
             for pattern in patterns:
@@ -144,7 +191,7 @@ class FieldMapper:
                     if field in ['first_name', 'middle_name', 'last_name']:
                         name_parts[field] = cleaned_value
                     else:
-                        extracted_data[field] = cleaned_value
+                        extracted_data.setdefault(field, cleaned_value)
                     break
         
         # Combine name parts
@@ -172,18 +219,58 @@ class FieldMapper:
         raw_value = raw_value.strip()
         
         if field_name == 'phone':
-            return re.sub(r'[\s().-]', '', raw_value)
+            # Map common OCR confusions to digits
+            sub = str.maketrans({
+                'O':'0','o':'0','C':'0','Q':'0',
+                'I':'1','l':'1','!':'1',
+                'S':'5','$':'5',
+                'B':'8'
+            })
+            s = raw_value.translate(sub)
+            # Remove non-digits but keep '+' at start
+            s = re.sub(r'[^0-9+]', '', s)
+            s = re.sub(r'(?<!^)\+', '', s)  # keep leading + only
+            return s
         
         elif field_name == 'email':
             cleaned = raw_value.lower()
             cleaned = re.sub(r'\s+', '', cleaned)
-            cleaned = re.sub(r'qmail', 'gmail', cleaned)
+            # Fix common OCR email confusions
+            cleaned = re.sub(r'qmail|gmai1|gmaii', 'gmail', cleaned)
+            cleaned = re.sub(r'@gmaii?l\.c[o0]m', '@gmail.com', cleaned)
+            cleaned = re.sub(r'@qmail\.com', '@gmail.com', cleaned)
             return cleaned
         
         elif field_name == 'pincode':
             digits = re.sub(r'\D', '', raw_value)
             return digits[:6] if digits else raw_value
         
+        elif field_name == 'dob':
+            # Handle both numeric and month-name date variants.
+            val = raw_value.strip()
+            # Try parsing common month-name formats first
+            from datetime import datetime
+            for fmt in ("%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y"):
+                try:
+                    dt = datetime.strptime(val, fmt)
+                    return dt.date().isoformat()
+                except Exception:
+                    pass
+
+            # Fallback: normalize numeric formats like 27-C9-2(CC) -> 27-09-2000
+            s = val.replace('/', '-').replace('.', '-').strip()
+            s = s.translate(str.maketrans({'O':'0','o':'0','C':'0','Q':'0','I':'1','l':'1'}))
+            s = re.sub(r'[^0-9\-]', '', s)
+            parts = s.split('-')
+            if len(parts) == 3:
+                d, m, y = parts
+                if len(y) == 2:
+                    y = '20' + y
+                elif len(y) < 4 and y.isdigit():
+                    y = y.zfill(4)
+                s = f"{d}-{m}-{y}"
+            return s
+
         elif field_name in ['first_name', 'middle_name', 'last_name']:
             return raw_value.title()
         
