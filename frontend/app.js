@@ -12,80 +12,156 @@ const ENDPOINTS = {
 // --- DOM ELEMENTS ---
 const views = {
     dashboard: document.getElementById('view-dashboard'),
+    form: document.getElementById('view-form'),
     upload: document.getElementById('view-upload'),
     verify: document.getElementById('view-verify'),
-    success: document.getElementById('view-success')
+    success: document.getElementById('view-success'),
+    review: document.getElementById('view-review')
 };
 
-const fileInput = document.getElementById('fileInput');
+// Specific verification document inputs (any of these triggers OCR)
+const aadharFileEl = document.getElementById('aadharFile');
+const passportFileEl = document.getElementById('passportFile');
+const birthCertFileEl = document.getElementById('birthCertFile');
+// Applicant form fields
+const firstNameEl = document.getElementById('firstName');
+const middleNameEl = document.getElementById('middleName');
+const lastNameEl = document.getElementById('lastName');
+const dobEl = document.getElementById('dob');
+const genderEl = document.getElementById('gender');
+const addressEl = document.getElementById('address');
+const emailEl = document.getElementById('email');
+const phoneEl = document.getElementById('phone');
+
+// Editable review inputs on upload page
+const editNameEl = document.getElementById('edit-name');
+const editDobEl = document.getElementById('edit-dob');
+const editGenderEl = document.getElementById('edit-gender');
+const editAddressEl = document.getElementById('edit-address');
+const editEmailEl = document.getElementById('edit-email');
+const editPhoneEl = document.getElementById('edit-phone');
 const loadingSpinner = document.getElementById('loading-spinner');
 const verifyForm = document.getElementById('verify-form');
 const previewImg = document.getElementById('preview-img');
-const uploadZone = document.querySelector('.upload-zone');
+// No dedicated upload zone after UI change
+// Review page elements
+const docListEl = document.getElementById('doc-list');
+const confidencePanelEl = document.getElementById('confidence-panel');
+const finalSubmitBtn = document.getElementById('final-submit');
+const extractedBoxEl = document.getElementById('extracted-box');
+const extractedTitleEl = document.getElementById('extracted-title');
+const extractedConfidenceEl = document.getElementById('extracted-confidence');
+const extractedTextEl = document.getElementById('extracted-text');
 
 let currentObjectUrl = null; // Track image memory for privacy cleanup
+const selectedDocs = { name: null, address: null, dob: null };
 
 // --- SWITCH SCREENS ---
 function switchView(viewName) {
     Object.values(views).forEach(el => el.classList.add('d-none'));
-    views[viewName.replace('view-', '')].classList.remove('d-none');
+    const key = viewName.replace('view-', '');
+    views[key].classList.remove('d-none');
+}
+// Handle form submission to move to upload step
+const continueBtn = document.getElementById('continue-to-upload');
+continueBtn?.addEventListener('click', () => {
+    // Minimal validation: required fields already marked in HTML
+    const form = document.getElementById('applicant-form');
+    if (form && !form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    // Proceed to upload page
+    switchView('view-upload');
+
+    // Populate editable review inputs on upload page
+    const fullName = [firstNameEl?.value, middleNameEl?.value, lastNameEl?.value]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (editNameEl) editNameEl.value = fullName || '';
+    if (editDobEl) editDobEl.value = dobEl?.value || '';
+    if (editGenderEl) editGenderEl.value = genderEl?.value || '';
+    if (editAddressEl) editAddressEl.value = addressEl?.value || '';
+    if (editEmailEl) editEmailEl.value = emailEl?.value || '';
+    if (editPhoneEl) editPhoneEl.value = phoneEl?.value || '';
+});
+
+// Helper to build user object from either original form or editable review inputs
+function buildUserFromUI() {
+    const nameFromReview = editNameEl?.value?.trim();
+    const dobFromReview = editDobEl?.value || '';
+    const genderFromReview = editGenderEl?.value || '';
+    const addressFromReview = editAddressEl?.value || '';
+    const emailFromReview = editEmailEl?.value || '';
+    const phoneFromReview = editPhoneEl?.value || '';
+
+    const nameFromForm = [firstNameEl?.value, middleNameEl?.value, lastNameEl?.value]
+        .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
+    return {
+        name: nameFromReview || nameFromForm || '',
+        dob: dobFromReview || dobEl?.value || '',
+        gender: genderFromReview || genderEl?.value || '',
+        address: addressFromReview || addressEl?.value || '',
+        email: emailFromReview || emailEl?.value || '',
+        phone: phoneFromReview || phoneEl?.value || ''
+    };
 }
 
-// --- MAIN UPLOAD LOGIC (Merged) ---
-fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+// --- MAIN UPLOAD LOGIC (supports any of the three inputs) ---
+async function handleSelectedFile(file) {
     if (!file) return;
 
     // 1. PRIVACY CLEANUP: Revoke old image memory
-    if (currentObjectUrl) {
-        URL.revokeObjectURL(currentObjectUrl);
-    }
+    if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+
     currentObjectUrl = URL.createObjectURL(file);
     previewImg.src = currentObjectUrl;
+    if (previewImg.classList.contains('d-none')) previewImg.classList.remove('d-none');
 
-    // 2. UI UPDATES
-    document.querySelector('.upload-zone').classList.add('d-none');
     loadingSpinner.classList.remove('d-none');
 
     const formData = new FormData();
-    // Backend expects field name 'file' at /api/v1/ocr/extract-text
     formData.append('file', file);
 
     try {
-        console.log("🚀 Step 1: Sending to OCR extraction...");
-        // STEP A: OCR Extract Text (image/pdf -> raw text)
+        console.log('🚀 Step 1: Sending to OCR extraction...');
         const ocrRes = await fetch(ENDPOINTS.ocrExtract, { method: 'POST', body: formData });
         if (!ocrRes.ok) throw new Error(`OCR Extraction Failed: ${ocrRes.status}`);
 
         const ocrJson = await ocrRes.json();
-        const rawText = ocrJson.extracted_text || ocrJson.raw_text || ocrJson.data?.raw_text || "";
+        const rawText = ocrJson.extracted_text || ocrJson.raw_text || ocrJson.data?.raw_text || '';
 
-        console.log("🚀 Step 2: Sending to Mapping & Verification...");
-        // STEP B: Map & Verify
+        const user = buildUserFromUI();
+        console.log('🚀 Step 2: Sending to Mapping & Verification...');
         const mapRes = await fetch(ENDPOINTS.map, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ raw_text: rawText, user: {} })
+            body: JSON.stringify({ raw_text: rawText, user })
         });
-        
         if (!mapRes.ok) throw new Error(`Mapping Failed: ${mapRes.status}`);
-        
+
         const mapJson = await mapRes.json();
-        // Handle different JSON structures from backend
-        const fields = mapJson.data || mapJson.mapped_fields || mapJson.mapped || mapJson;
-
-        renderForm(fields);
-        switchView('view-verify');
-
+        // Keep user on the upload page; do not switch views here.
+        // We only run per-document OCR/mapping and navigate on Confirm & Submit.
     } catch (err) {
         console.error(err);
         alert(`Error: ${err.message}. Is Backend running on port 8000?`);
-        // Reset UI on error
-        document.querySelector('.upload-zone').classList.remove('d-none');
-        fileInput.value = ''; // clear input
     } finally {
         loadingSpinner.classList.add('d-none');
     }
+}
+
+[aadharFileEl, passportFileEl, birthCertFileEl].forEach((el) => {
+    if (!el) return;
+    el.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (el === aadharFileEl) selectedDocs.name = file;
+        if (el === passportFileEl) selectedDocs.address = file;
+        if (el === birthCertFileEl) selectedDocs.dob = file;
+    });
 });
 
 // --- RENDER FORM (Updated for Team A's Test Structure) ---
@@ -146,73 +222,141 @@ function renderForm(data) {
 
 // --- SUBMIT DATA (Privacy & Fallback Version) ---
 async function submitData() {
-    // 1. Scrape data from inputs
-    const payload = {};
-    verifyForm.querySelectorAll('input[data-key]').forEach(input => {
-        const key = input.getAttribute('data-key');
-        payload[key] = input.value;
-    });
+    // Process selected documents and render the review page with confidence scores
+    const user = buildUserFromUI();
+    const results = {};
 
-    console.log("📦 Submitting Payload:", payload);
+    const processDoc = async (key, file) => {
+        const fd = new FormData();
+        fd.append('file', file);
+        const ocrRes = await fetch(ENDPOINTS.ocrExtract, { method: 'POST', body: fd });
+        if (!ocrRes.ok) throw new Error(`OCR failed for ${key}: ${ocrRes.status}`);
+        const ocrJson = await ocrRes.json();
+        const rawText = ocrJson.extracted_text || ocrJson.raw_text || ocrJson.data?.raw_text || '';
+        const mapRes = await fetch(ENDPOINTS.map, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw_text: rawText, user })
+        });
+        if (!mapRes.ok) throw new Error(`Map failed for ${key}: ${mapRes.status}`);
+        const mapJson = await mapRes.json();
+        const fields = mapJson.data || mapJson.mapped_fields || mapJson.mapped || mapJson;
+        const url = URL.createObjectURL(file);
+        results[key] = { fileName: file.name, rawText, fields, url };
+    };
+
+    const tasks = [];
+    if (selectedDocs.name) tasks.push(processDoc('name', selectedDocs.name));
+    if (selectedDocs.address) tasks.push(processDoc('address', selectedDocs.address));
+    if (selectedDocs.dob) tasks.push(processDoc('dob', selectedDocs.dob));
+
+    if (tasks.length === 0) {
+        alert('Please upload at least one document before submitting.');
+        return;
+    }
+
+    loadingSpinner.classList.remove('d-none');
+    try {
+        await Promise.all(tasks);
+    } catch (e) {
+        console.error(e);
+        alert(`Error during document processing: ${e.message}`);
+    } finally {
+        loadingSpinner.classList.add('d-none');
+    }
 
     try {
-        // 2. Try Real Backend Submit
-        const res = await fetch(ENDPOINTS.submit, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ data: payload }) // Wrapping in 'data' key
-        });
-
-        if (!res.ok) throw new Error("Backend rejected submission");
-
-        console.log("✅ Backend Submission Success");
-
-    } catch (err) {
-        console.warn('⚠️ Backend Submit Failed/Offline. Falling back to local download.');
-        console.error(err);
-
-        // 3. FALLBACK: Download JSON (Saves the demo if server fails)
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload));
-        const downloadAnchorNode = document.createElement('a');
-        downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", "mosip_packet.json");
-        document.body.appendChild(downloadAnchorNode);
-        downloadAnchorNode.click();
-        downloadAnchorNode.remove();
+        // Switch first so the review elements are visible in DOM
+        switchView('view-review');
+        renderReview(results);
+    } catch (e) {
+        console.error('Render error:', e);
+        alert('Unable to render review page. Please check console logs.');
     }
-
-    // 4. PRIVACY CLEANUP (Crucial for MOSIP)
-    if (currentObjectUrl) {
-        URL.revokeObjectURL(currentObjectUrl);
-        currentObjectUrl = null;
-        previewImg.src = '';
-    }
-
-    // 5. Show Success Screen
-    switchView('view-success');
 }
 
-// --- DRAG & DROP HANDLERS ---
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    uploadZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-    }, false);
-});
-
-['dragenter', 'dragover'].forEach(evt => {
-    uploadZone.addEventListener(evt, () => uploadZone.classList.add('drag-over'), false);
-});
-
-['dragleave', 'drop'].forEach(evt => {
-    uploadZone.addEventListener(evt, () => uploadZone.classList.remove('drag-over'), false);
-});
-
-uploadZone.addEventListener('drop', (e) => {
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        fileInput.files = files;
-        // Trigger the merged listener above
-        fileInput.dispatchEvent(new Event('change'));
+function renderReview(results) {
+    console.log('Rendering review with results:', results);
+    // Left list with view buttons
+    if (!docListEl || !confidencePanelEl || !extractedBoxEl || !extractedTitleEl || !extractedConfidenceEl || !extractedTextEl) {
+        throw new Error('Review page elements not found');
     }
-}, false);
+    docListEl.innerHTML = '';
+    const order = [
+        { key: 'name', label: 'Aadhaar/Voter ID (Name)' },
+        { key: 'address', label: 'DL/Passport (Address)' },
+        { key: 'dob', label: 'Birth/SLC (DOB)' }
+    ];
+    order.forEach(({ key, label }) => {
+        const item = results[key];
+        if (!item) return;
+        const html = `
+            <div class="list-group-item mb-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="fw-semibold">${label}</div>
+                        <div class="text-muted small">${item.fileName}</div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-outline-secondary btn-sm" data-action="view-doc" data-key="${key}">View Document</button>
+                        <button class="btn btn-outline-secondary btn-sm" data-action="view-text" data-key="${key}">View Extracted Text</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        docListEl.insertAdjacentHTML('beforeend', html);
+    });
+
+    docListEl.onclick = (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const key = btn.getAttribute('data-key');
+        const item = results[key];
+        if (!item) return;
+        if (btn.getAttribute('data-action') === 'view-doc') {
+            if (item.url) {
+                try { window.open(item.url, '_blank'); }
+                catch(err) { console.error('Open doc failed:', err); }
+            }
+        } else {
+            // Populate right panel with extracted text and confidence
+            const fields = item.fields || {};
+            let total = 0, count = 0;
+            Object.values(fields).forEach(f => {
+                const conf = (f && typeof f === 'object' && f.confidence !== undefined) ? Number(f.confidence) : 1.0;
+                total += conf; count += 1;
+            });
+            const avg = count ? total / count : 0;
+            extractedTitleEl.textContent = item.fileName;
+            extractedConfidenceEl.textContent = `${Math.round(avg*100)}%`;
+            extractedConfidenceEl.className = `badge ${avg < 0.6 ? 'bg-warning text-dark' : 'bg-success'}`;
+            extractedTextEl.textContent = item.rawText || '(no text)';
+            extractedBoxEl.classList.remove('d-none');
+        }
+    };
+
+    // Right confidence panel
+    confidencePanelEl.innerHTML = '';
+    Object.entries(results).forEach(([key, item]) => {
+        const fields = item.fields || {};
+        let total = 0, count = 0;
+        Object.values(fields).forEach(f => {
+            const conf = (f && typeof f === 'object' && f.confidence !== undefined) ? Number(f.confidence) : 1.0;
+            total += conf; count += 1;
+        });
+        const avg = count ? total / count : 0;
+        const label = key === 'name' ? 'Name Doc' : key === 'address' ? 'Address Doc' : 'DOB Doc';
+        const html = `
+            <div class="mb-3">
+                <div class="d-flex justify-content-between">
+                    <span class="fw-semibold">${label}</span>
+                    <span class="badge ${avg < 0.6 ? 'bg-warning text-dark' : 'bg-success'}">${Math.round(avg*100)}%</span>
+                </div>
+                <div class="small text-muted">Average confidence across extracted fields.</div>
+            </div>
+        `;
+        confidencePanelEl.insertAdjacentHTML('beforeend', html);
+    });
+}
+
+// No drag & drop after removing the upload zone
