@@ -1,12 +1,12 @@
 // --- CONFIGURATION ---
 const BASE_URL = "http://localhost:8000";
 const ENDPOINTS = {
-   
-    extract: `${BASE_URL}/api/v1/extract-fields`, 
-    
-    map:     `${BASE_URL}/api/v1/map-and-verify`,
-    
-    submit:  `${BASE_URL}/api/v1/submit` 
+    // OCR: upload image/pdf as 'file'
+    ocrExtract: `${BASE_URL}/api/v1/ocr/extract-text`,
+    // Mapping + Verification using extracted raw text
+    map: `${BASE_URL}/api/v1/map-and-verify`,
+    // Optional submit endpoint (may not exist; fallback provided)
+    submit: `${BASE_URL}/api/v1/submit`
 };
 
 // --- DOM ELEMENTS ---
@@ -48,18 +48,19 @@ fileInput.addEventListener('change', async (e) => {
     loadingSpinner.classList.remove('d-none');
 
     const formData = new FormData();
-    formData.append('document', file);
+    // Backend expects field name 'file' at /api/v1/ocr/extract-text
+    formData.append('file', file);
 
     try {
-        console.log("🚀 Step 1: Sending to Extraction...");
-        // STEP A: Extract Text
-        const extractRes = await fetch(ENDPOINTS.extract, { method: 'POST', body: formData });
-        if (!extractRes.ok) throw new Error(`Extraction Failed: ${extractRes.status}`);
-        
-        const extractJson = await extractRes.json();
-        const rawText = extractJson.raw_text || extractJson.data?.raw_text || "";
+        console.log("🚀 Step 1: Sending to OCR extraction...");
+        // STEP A: OCR Extract Text (image/pdf -> raw text)
+        const ocrRes = await fetch(ENDPOINTS.ocrExtract, { method: 'POST', body: formData });
+        if (!ocrRes.ok) throw new Error(`OCR Extraction Failed: ${ocrRes.status}`);
 
-        console.log("🚀 Step 2: Sending to Verification...");
+        const ocrJson = await ocrRes.json();
+        const rawText = ocrJson.extracted_text || ocrJson.raw_text || ocrJson.data?.raw_text || "";
+
+        console.log("🚀 Step 2: Sending to Mapping & Verification...");
         // STEP B: Map & Verify
         const mapRes = await fetch(ENDPOINTS.map, {
             method: 'POST',
@@ -148,7 +149,8 @@ async function submitData() {
     // 1. Scrape data from inputs
     const payload = {};
     verifyForm.querySelectorAll('input[data-key]').forEach(input => {
-        payload[input.getAttribute('data-key')] = input.value;
+        const key = input.getAttribute('data-key');
+        payload[key] = input.value;
     });
 
     console.log("📦 Submitting Payload:", payload);
