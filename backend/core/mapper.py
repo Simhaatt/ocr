@@ -1,5 +1,10 @@
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
+try:
+    from rapidfuzz import fuzz  # type: ignore
+    _HAS_RAPIDFUZZ = True
+except Exception:
+    _HAS_RAPIDFUZZ = False
 
 class FieldMapper:
     def __init__(self):
@@ -114,10 +119,98 @@ class FieldMapper:
             ]
         }
     
-    def extract_fields(self, raw_text: str) -> Dict[str, str]:
+    def extract_fields(self, raw_text: str, document_type: Optional[str] = None) -> Dict[str, str]:
         extracted_data = {}
         name_parts = {}
         
+        # If document_type focuses on name (e.g., Aadhaar/Voter), do a fast pass
+        doc = (document_type or "").lower()
+        if doc in {"aadhar", "aadhaar", "voter"}:
+            # Try robust name extraction from noisy OCR lines
+            lines = [ln.strip() for ln in raw_text.splitlines() if ln and len(ln.strip()) >= 3]
+
+            # Candidate label phrases and a simple scorer
+            name_labels = [
+                "first name", "middle name", "last name",
+                "given name", "surname", "family name"
+            ]
+
+            # Generic label starter detection to avoid taking the next label as value
+            LABEL_STARTS = re.compile(
+                r"^\s*(first\s*name|middle\s*name|last\s*name|surname|family\s*name|"
+                r"gender|sex|address|addr|city|state|age|dob|date\s*of\s*birth|phone|mobile|email|e-?mail)\b",
+                re.IGNORECASE,
+            )
+
+            def score_label(text: str) -> str:
+                t = text.lower()
+                best = None
+                best_s = 0
+                for lab in name_labels:
+                    if _HAS_RAPIDFUZZ:
+                        s = fuzz.token_set_ratio(lab, t)
+                    else:
+                        import difflib
+                        s = int(difflib.SequenceMatcher(None, lab, t).ratio() * 100)
+                    if s > best_s:
+                        best_s = s
+                        best = lab
+                return best if best_s >= 80 else ""
+
+            # Direct 'Name:' capture (single-label form)
+            for ln in lines:
+                m_name = re.match(r"^\s*name\s*[:\-]?\s*(.+)$", ln, flags=re.IGNORECASE)
+                if m_name:
+                    full = m_name.group(1).strip()
+                    if full:
+                        extracted_data['name'] = ' '.join(self.clean_field('first_name', full).split())
+                        # do not break; still attempt parts below in case present
+
+            i = 0
+            while i < len(lines):
+                ln = lines[i]
+                label = score_label(ln)
+                if label:
+                    # Extract inline value after ':' or '-' else take next line
+                    val = ""
+                    m = re.search(r":|-", ln)
+                    if m:
+                        val = ln[m.end():].strip()
+                    if not val and (i + 1) < len(lines):
+                        nxt = lines[i + 1].strip()
+                        # Avoid picking another label line (for any field)
+                        if not LABEL_STARTS.match(nxt):
+                            val = nxt
+                            i += 1
+
+                    if val:
+                        if "first" in label or "given" in label:
+                            name_parts['first_name'] = self.clean_field('first_name', val)
+                        elif "middle" in label:
+                            name_parts['middle_name'] = self.clean_field('middle_name', val)
+                        elif "last" in label or "surname" in label or "family" in label:
+                            name_parts['last_name'] = self.clean_field('last_name', val)
+                i += 1
+
+            # If we still don't have parts, fallback to existing regex patterns
+            if not name_parts:
+                for field in ['first_name', 'middle_name', 'last_name']:
+                    for pattern in self.field_patterns.get(field, []):
+                        m = re.search(pattern, raw_text, re.IGNORECASE)
+                        if m:
+                            name_parts[field] = self.clean_field(field, m.group(1).strip())
+                            break
+
+            # Combine and return only name
+            if name_parts:
+                first = name_parts.get('first_name', '')
+                middle = name_parts.get('middle_name', '')
+                last = name_parts.get('last_name', '')
+                full_name = f"{first} {middle} {last}".strip()
+                if full_name:
+                    extracted_data['name'] = ' '.join(full_name.split())
+            return extracted_data
+
         for field, patterns in self.field_patterns.items():
             for pattern in patterns:
                 match = re.search(pattern, raw_text, re.IGNORECASE)
@@ -132,6 +225,42 @@ class FieldMapper:
                         extracted_data[field] = cleaned_value
                     break
         
+        # Fallback: generic label-value parsing when patterns miss
+        def fallback_label_parse(text: str) -> Dict[str, str]:
+            out: Dict[str, str] = {}
+            lines = [ln.strip() for ln in text.splitlines() if ln and len(ln.strip()) >= 3]
+            # Canonical label targets
+            targets = {
+                'name': ['name', 'full name', 'given name'],
+                'address': ['address', 'addr'],
+                'phone': ['phone', 'phone number', 'mobile'],
+                'email': ['email', 'email id', 'e-mail'],
+                'gender': ['gender', 'sex'],
+                'dob': ['date of birth', 'dob', 'birth date'],
+                'age': ['age', 'years'],
+            }
+            # Parse each line by flexible pattern: label [:|-] value OR exact startswith
+            for ln in lines:
+                for canon, labs in targets.items():
+                    for lab in labs:
+                        # direct pattern with optional separator
+                        m = re.match(rf"^\s*{re.escape(lab)}\s*[:\-]?\s*(.+)$", ln, flags=re.IGNORECASE)
+                        if m:
+                            val = m.group(1).strip()
+                            if val:
+                                cleaned = self.clean_field(canon if canon in {'phone','email','pincode'} else canon, val)
+                                out[canon] = cleaned
+                                break
+                    if canon in out:
+                        continue
+            return out
+
+        # Merge fallback results (do not overwrite existing)
+        fb = fallback_label_parse(raw_text)
+        for k, v in fb.items():
+            if k not in extracted_data:
+                extracted_data[k] = v
+
         # Combine name parts
         if name_parts:
             first = name_parts.get('first_name', '')

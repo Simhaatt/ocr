@@ -22,6 +22,7 @@ class ExtractionResponse(BaseModel):
 class MapAndVerifyRequest(BaseModel):
     raw_text: str
     user: Dict[str, str]
+    document_type: Optional[str] = None  # e.g., 'aadhar', 'voter', 'dl', 'passport', 'birth', 'slc'
 
 class MapAndVerifyResponse(BaseModel):
     status: str
@@ -34,7 +35,7 @@ async def extract_fields(request: ExtractionRequest):
    
     try:
        
-        extracted_data = field_mapper.extract_fields(request.raw_text)
+        extracted_data = field_mapper.extract_fields(request.raw_text, document_type=request.document_type)
         missing_fields = field_mapper.get_missing_fields(extracted_data)
         
         return ExtractionResponse(
@@ -50,11 +51,36 @@ async def extract_fields(request: ExtractionRequest):
 @router.post("/map-and-verify", response_model=MapAndVerifyResponse)
 async def map_and_verify(req: MapAndVerifyRequest):
     try:
-        mapped = field_mapper.extract_fields(req.raw_text)
+        mapped = field_mapper.extract_fields(req.raw_text, document_type=req.document_type)
         missing = field_mapper.get_missing_fields(mapped)
-        # Only pass relevant verification keys
-        ocr_subset = {k: v for k, v in mapped.items() if k in ("name", "dob", "phone", "address", "gender")}
-        user_subset = {k: v for k, v in req.user.items() if k in ("name", "dob", "phone", "address", "gender")}
+        # Determine relevant field(s) for verification based on document type
+        doc_map = {
+            "aadhar": ["name"],
+            "voter": ["name"],
+            "dl": ["address"],
+            "passport": ["address"],
+            "birth": ["dob"],
+            "slc": ["dob"],
+            # For handwritten, show all extracted fields
+            "handwritten": None,
+        }
+        requested = (req.document_type or "").lower()
+        keys = doc_map.get(requested)
+        if keys is None:
+            # Do not restrict; use all extracted fields
+            pass
+        elif not keys:
+            # default: verify standard keys if doc_type unknown
+            keys = ["name", "dob", "phone", "address", "gender"]
+
+        # Ensure mapped only includes relevant keys for UI clarity (skip for handwritten)
+        if keys is not None:
+            mapped = {k: v for k, v in mapped.items() if k in keys}
+            ocr_subset = {k: v for k, v in mapped.items() if k in keys}
+            user_subset = {k: v for k, v in req.user.items() if k in keys}
+        else:
+            ocr_subset = mapped
+            user_subset = req.user
         verification = verify(ocr_subset, user_subset)
 
         # Age consistency note (auxiliary; does not affect scoring)

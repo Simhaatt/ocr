@@ -26,8 +26,17 @@ except ImportError:  # graceful fallback if not installed yet
 # --- small mappings used in normalization ---
 ABBR = {
     # thoroughfares
-    "st": "street", "rd": "road", "ave": "avenue", "av": "avenue", "ln": "lane", "ct": "court",
-    "cir": "circle", "dr": "drive", "pl": "place", "pkwy": "parkway", "hwy": "highway",
+    # with and without trailing dots
+    "st": "street", "st.": "street",
+    "rd": "road", "rd.": "road",
+    "ave": "avenue", "av": "avenue", "ave.": "avenue", "av.": "avenue",
+    "ln": "lane", "ln.": "lane",
+    "ct": "court", "ct.": "court",
+    "cir": "circle", "cir.": "circle",
+    "dr": "drive", "dr.": "drive",
+    "pl": "place", "pl.": "place",
+    "pkwy": "parkway", "pkwy.": "parkway",
+    "hwy": "highway", "hwy.": "highway",
     # buildings / units
     "bldg": "building", "blk": "block", "apt": "apartment", "flat": "flat", "ste": "suite",
     "fl": "floor", "flr": "floor", "twr": "tower", "ph": "phase", "sec": "sector",
@@ -47,6 +56,8 @@ STOPWORDS = {
     # address glue words (kept conservative to avoid harming names)
     "near", "nearby", "opposite", "opp", "behind", "beside", "by", "at", "the", "in",
     "next", "to", "of", "and",
+    # frequent non-informative tokens in addresses
+    "country", "usa", "india",
     # Hindi stopwords (common particles / connectors)
     "के", "और", "में", "का", "की", "पर", "को", "से", "तक",
 }
@@ -119,7 +130,8 @@ def expand_abbreviations(s: str) -> str:
     words = s.split()
     out = []
     for w in words:
-        w_clean = re.sub(r"[^\w]", "", w)
+        # preserve tokens like "st." to map via ABBR
+        w_clean = re.sub(r"^([\w]+)[^\w]*$", r"\1", w.lower())
         out.append(ABBR.get(w_clean, w_clean))
     return " ".join(out)
 
@@ -171,14 +183,23 @@ def name_score(a: str, b: str) -> float:
     # Boost for token permutations (order variance)
     if set(toks_a) == set(toks_b) and len(toks_a) == len(toks_b):
         best = max(best, 0.95)
-    # Mild boost for prefix truncation (e.g., 'Ramesh K' vs 'Ramesh Kumar')
+    # Mild boost for prefix truncation or middle initials
+    def strip_dot(x: str) -> str:
+        return x.replace('.', '')
     if len(toks_a) == len(toks_b) - 1:
-        if all(toks_a[i] == toks_b[i] for i in range(len(toks_a)-1)) and toks_b[-1].startswith(toks_a[-1]):
-            best = max(best, 0.85)
-    # Abbreviation case same length: last token of shorter is prefix of last token of longer form
+        if all(strip_dot(toks_a[i]) == strip_dot(toks_b[i]) for i in range(len(toks_a)-1)) and toks_b[-1].startswith(strip_dot(toks_a[-1])):
+            best = max(best, 0.87)
+    # Abbreviation case same length: allow middle/last initial with dot
     if len(toks_a) == len(toks_b) == 2:
-        if toks_a[0] == toks_b[0] and (toks_a[1].startswith(toks_b[1]) or toks_b[1].startswith(toks_a[1])):
-            best = max(best, 0.85)
+        if strip_dot(toks_a[0]) == strip_dot(toks_b[0]) and (strip_dot(toks_a[1]).startswith(strip_dot(toks_b[1])) or strip_dot(toks_b[1]).startswith(strip_dot(toks_a[1]))):
+            best = max(best, 0.87)
+    # Three-token case: tolerate middle initial
+    if len(toks_a) == len(toks_b) == 3:
+        if strip_dot(toks_a[0]) == strip_dot(toks_b[0]) and strip_dot(toks_a[-1]) == strip_dot(toks_b[-1]):
+            mid_a = strip_dot(toks_a[1])
+            mid_b = strip_dot(toks_b[1])
+            if mid_a[:1] == mid_b[:1]:
+                best = max(best, 0.9)
     # Specific reversal boost for two-token names
     if len(toks_a) == len(toks_b) == 2 and toks_a[0] == toks_b[1] and toks_a[1] == toks_b[0]:
         best = max(best, 0.95)
