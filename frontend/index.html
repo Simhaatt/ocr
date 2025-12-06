@@ -26,7 +26,7 @@
             <div class="card p-5 border-0 shadow-sm mt-4">
                 <h2 class="mb-3 fw-bold text-secondary">Officer Dashboard</h2>
                 <p class="text-muted mb-5">System ready for new applicant registration.</p>
-                <button onclick="switchView('view-form')" class="btn btn-mosip btn-lg px-5 py-3">
+                <button id="start-registration" class="btn btn-mosip btn-lg px-5 py-3">
                     Start New Registration
                 </button>
             </div>
@@ -34,12 +34,15 @@
 
         <div id="view-form" class="view-section d-none fade-in">
             <div class="card border-0 shadow-sm">
-                <div class="card-header bg-white fw-bold">Applicant Details</div>
+                <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+                    <span>Applicant Details</span>
+                    <button type="button" onclick="switchView('view-dashboard')" class="btn btn-outline-secondary btn-sm">Back</button>
+                </div>
                 <div class="card-body">
                     <form id="applicant-form">
                         <div class="row g-3">
                             <div class="col-md-4">
-                                <label for="firstName" class="form-label">First Name</label>
+                                <label for="firstName" class="form-label">First Name <span class="text-danger">*</span></label>
                                 <input type="text" id="firstName" class="form-control" placeholder="First name" required>
                             </div>
                             <div class="col-md-4">
@@ -47,15 +50,15 @@
                                 <input type="text" id="middleName" class="form-control" placeholder="Middle name">
                             </div>
                             <div class="col-md-4">
-                                <label for="lastName" class="form-label">Last Name</label>
+                                <label for="lastName" class="form-label">Last Name <span class="text-danger">*</span></label>
                                 <input type="text" id="lastName" class="form-control" placeholder="Last name" required>
                             </div>
                             <div class="col-md-6">
-                                <label for="dob" class="form-label">Date of Birth</label>
+                                <label for="dob" class="form-label">Date of Birth <span class="text-danger">*</span></label>
                                 <input type="date" id="dob" class="form-control" required>
                             </div>
                             <div class="col-md-6">
-                                <label for="gender" class="form-label">Gender</label>
+                                <label for="gender" class="form-label">Gender <span class="text-danger">*</span></label>
                                 <select id="gender" class="form-select" required>
                                     <option value="">Select...</option>
                                     <option value="Male">Male</option>
@@ -64,15 +67,15 @@
                                 </select>
                             </div>
                             <div class="col-12">
-                                <label for="address" class="form-label">Address</label>
+                                <label for="address" class="form-label">Address <span class="text-danger">*</span></label>
                                 <textarea id="address" class="form-control" rows="2" placeholder="House, Street, City, State - PIN" required></textarea>
                             </div>
                             <div class="col-md-6">
-                                <label for="email" class="form-label">Email</label>
-                                <input type="email" id="email" class="form-control" placeholder="name@example.com">
+                                <label for="email" class="form-label">Email <span class="text-danger">*</span></label>
+                                <input type="email" id="email" class="form-control" placeholder="name@example.com" required>
                             </div>
                             <div class="col-md-6">
-                                <label for="phone" class="form-label">Phone Number</label>
+                                <label for="phone" class="form-label">Phone Number <span class="text-danger">*</span></label>
                                 <input type="tel" id="phone" class="form-control" placeholder="+91-XXXXXXXXXX" required>
                             </div>
                         </div>
@@ -89,7 +92,12 @@
                 <!-- Left: Applicant details in a clean table -->
                 <div class="col-md-6">
                     <div class="card border-0 shadow-sm h-100">
-                        <div class="card-header bg-white fw-bold">Review Applicant Details</div>
+                        <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+                            <span>Preview Applicant Details</span>
+                            <div>
+                                <button type="button" id="edit-applicant" class="btn btn-outline-secondary btn-sm">Edit</button>
+                            </div>
+                        </div>
                         <div class="card-body">
                             <div class="table-responsive">
                                 <table class="table table-sm align-middle mb-0">
@@ -97,19 +105,19 @@
                                         <tr>
                                             <th scope="row" class="w-25">Name</th>
                                             <td>
-                                                <input id="edit-name" type="text" class="form-control form-control-sm" placeholder="Full name">
+                                                <input id="edit-name" type="text" class="form-control form-control-sm" placeholder="Full name" disabled>
                                             </td>
                                         </tr>
                                         <tr>
                                             <th scope="row">Date of Birth</th>
                                             <td>
-                                                <input id="edit-dob" type="date" class="form-control form-control-sm">
+                                                <input id="edit-dob" type="date" class="form-control form-control-sm" disabled>
                                             </td>
                                         </tr>
                                         <tr>
                                             <th scope="row">Gender</th>
                                             <td>
-                                                <select id="edit-gender" class="form-select form-select-sm">
+                                                <select id="edit-gender" class="form-select form-select-sm" disabled>
                                                     <option value="">Select...</option>
                                                     <option value="Male">Male</option>
                                                     <option value="Female">Female</option>
@@ -120,23 +128,27 @@
                                         <tr>
                                             <th scope="row">Address</th>
                                             <td>
-                                                <textarea id="edit-address" rows="2" class="form-control form-control-sm" placeholder="House, Street, City, State - PIN"></textarea>
+                                                <textarea id="edit-address" rows="2" class="form-control form-control-sm" placeholder="House, Street, City, State - PIN" disabled></textarea>
                                             </td>
                                         </tr>
                                         <tr>
                                             <th scope="row">Email</th>
                                             <td>
-                                                <input id="edit-email" type="email" class="form-control form-control-sm" placeholder="name@example.com">
+                                                <input id="edit-email" type="email" class="form-control form-control-sm" placeholder="name@example.com" disabled>
                                             </td>
                                         </tr>
                                         <tr>
                                             <th scope="row">Phone</th>
                                             <td>
-                                                <input id="edit-phone" type="tel" class="form-control form-control-sm" placeholder="+91-XXXXXXXXXX">
+                                                <input id="edit-phone" type="tel" class="form-control form-control-sm" placeholder="+91-XXXXXXXXXX" disabled>
                                             </td>
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+                            <!-- Save button appears at bottom when editing -->
+                            <div class="d-flex justify-content-end mt-3">
+                                <button type="button" id="save-applicant" class="btn btn-mosip d-none">Save</button>
                             </div>
                         </div>
                     </div>
@@ -147,6 +159,7 @@
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-white fw-bold">Upload Documents for Verification</div>
                         <div class="card-body">
+                            <div class="alert alert-info py-2 small" role="alert">Optional handwritten document upload is supported below.</div>
                             <div class="mb-3">
                                 <label class="form-label fw-semibold">Aadhaar or Voter ID (for Name verification)</label>
                                 <input type="file" id="aadharFile" accept="image/*,.pdf" class="form-control">
@@ -159,13 +172,18 @@
                                 <label class="form-label fw-semibold">Birth Certificate or School Leaving Certificate (for Date of Birth)</label>
                                 <input type="file" id="birthCertFile" accept="image/*,.pdf" class="form-control">
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Handwritten Document (Optional)</label>
+                                <input type="file" id="handwrittenFile" accept="image/*,.pdf" class="form-control">
+                            </div>
 
                             <div id="loading-spinner" class="d-none mt-3">
                                 <div class="spinner-border text-mosip" role="status"></div>
                                 <p class="mt-2 text-muted small mb-0">Processing OCR...</p>
                             </div>
 
-                            <div class="d-flex justify-content-end mt-3">
+                            <div class="d-flex justify-content-between mt-3">
+                                <button type="button" onclick="switchView('view-form')" class="btn btn-outline-secondary">Back</button>
                                 <button type="button" onclick="submitData()" class="btn btn-mosip">Submit</button>
                             </div>
                         </div>
@@ -178,7 +196,10 @@
             <div class="row g-4">
                 <div class="col-md-6">
                     <div class="card h-100 border-0 shadow-sm">
-                        <div class="card-header bg-white fw-bold">Original Scan</div>
+                        <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+                            <span>Original Scan</span>
+                            <button type="button" onclick="switchView('view-upload')" class="btn btn-outline-secondary btn-sm">Back</button>
+                        </div>
                         <div class="card-body bg-dark d-flex flex-column align-items-center justify-content-start">
                             <img id="preview-img" src="" class="img-fluid d-none" style="max-height: 400px;">
                             <embed id="preview-pdf" type="application/pdf" class="w-100 d-none" style="height: 400px;" />
@@ -190,7 +211,10 @@
                 <div class="col-md-6">
                     <div class="card h-100 border-0 shadow-sm">
                         <div id="verify-header" class="card-header bg-white fw-bold d-flex align-items-center justify-content-between">
-                            <span>Verify Data</span>
+                            <div>
+                                <span>Verify Data</span>
+                                <button type="button" onclick="switchView('view-upload')" class="btn btn-outline-secondary btn-sm ms-2">Back</button>
+                            </div>
                             <span id="verification-badge" class="badge rounded-pill bg-secondary d-none">...</span>
                         </div>
                         <div class="card-body">
@@ -222,7 +246,10 @@
             <div class="row g-4">
                 <div class="col-md-6">
                     <div class="card h-100 border-0 shadow-sm">
-                        <div class="card-header bg-white fw-bold">Documents & Extracted Text</div>
+                        <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+                            <span>Documents & Extracted Text</span>
+                            <button type="button" onclick="switchView('view-upload')" class="btn btn-outline-secondary btn-sm">Back</button>
+                        </div>
                         <div class="card-body">
                             <div id="doc-list" class="list-group"></div>
                         </div>

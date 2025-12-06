@@ -52,21 +52,29 @@ const extractedBoxEl = document.getElementById('extracted-box');
 const extractedTitleEl = document.getElementById('extracted-title');
 const extractedConfidenceEl = document.getElementById('extracted-confidence');
 const extractedTextEl = document.getElementById('extracted-text');
+// Edit/Save controls
+const editBtn = document.getElementById('edit-applicant');
+const saveBtn = document.getElementById('save-applicant');
+const handwrittenFileEl = document.getElementById('handwrittenFile');
 
 let currentObjectUrl = null; // Track image memory for privacy cleanup
 const selectedDocs = { name: null, address: null, dob: null };
+let reviewResults = null; // Persist results for finalize download
+let isEditingApplicant = false;
 
-// --- SWITCH SCREENS ---
 function switchView(viewName) {
     Object.values(views).forEach(el => el.classList.add('d-none'));
     const key = viewName.replace('view-', '');
     views[key].classList.remove('d-none');
 }
+// Expose for inline onclick handlers
+window.switchView = switchView;
+// Attach handler to Start button (dashboard -> form)
+document.getElementById('start-registration')?.addEventListener('click', () => switchView('view-form'));
 // Handle form submission to move to upload step
 const continueBtn = document.getElementById('continue-to-upload');
 continueBtn?.addEventListener('click', () => {
-    // Minimal validation: required fields already marked in HTML
-    const form = document.getElementById('applicant-form');
+        const form = document.getElementById('applicant-form');
     if (form && !form.checkValidity()) {
         form.reportValidity();
         return;
@@ -164,6 +172,32 @@ async function handleSelectedFile(file) {
     });
 });
 
+// Optional handwritten doc tracking
+handwrittenFileEl?.addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    // We won't process this unless present; treat as supplemental (no mapping changes here)
+    if (file) {
+        console.log('Optional handwritten doc selected:', file.name);
+    }
+});
+
+// Toggle editable state for preview inputs
+editBtn?.addEventListener('click', () => {
+    isEditingApplicant = true;
+    [editNameEl, editDobEl, editGenderEl, editAddressEl, editEmailEl, editPhoneEl].forEach(el => el && (el.disabled = false));
+    // Show bottom Save button when editing
+    const saveBtnEl = document.getElementById('save-applicant');
+    if (saveBtnEl) saveBtnEl.classList.remove('d-none');
+});
+
+saveBtn?.addEventListener('click', () => {
+    isEditingApplicant = false;
+    [editNameEl, editDobEl, editGenderEl, editAddressEl, editEmailEl, editPhoneEl].forEach(el => el && (el.disabled = true));
+    // Hide bottom Save button when not editing
+    const saveBtnEl = document.getElementById('save-applicant');
+    if (saveBtnEl) saveBtnEl.classList.add('d-none');
+});
+
 // --- RENDER FORM (Updated for Team A's Test Structure) ---
 function renderForm(data) {
     verifyForm.innerHTML = '';
@@ -233,22 +267,32 @@ async function submitData() {
         if (!ocrRes.ok) throw new Error(`OCR failed for ${key}: ${ocrRes.status}`);
         const ocrJson = await ocrRes.json();
         const rawText = ocrJson.extracted_text || ocrJson.raw_text || ocrJson.data?.raw_text || '';
+        // Map key to backend document_type for focused verification
+        const docTypeMap = { name: 'aadhar', address: 'dl', dob: 'birth', handwritten: null };
+        const document_type = docTypeMap[key] || null;
+
         const mapRes = await fetch(ENDPOINTS.map, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ raw_text: rawText, user })
+            body: JSON.stringify({ raw_text: rawText, user, document_type })
         });
         if (!mapRes.ok) throw new Error(`Map failed for ${key}: ${mapRes.status}`);
         const mapJson = await mapRes.json();
-        const fields = mapJson.data || mapJson.mapped_fields || mapJson.mapped || mapJson;
+        // Prefer structured mapped fields
+        const fields = mapJson.mapped || mapJson.mapped_fields || mapJson.data || mapJson;
+        // Extract verification info if available
+        const verification = mapJson.verification || null;
         const url = URL.createObjectURL(file);
-        results[key] = { fileName: file.name, rawText, fields, url };
+        results[key] = { fileName: file.name, rawText, fields, verification, url };
     };
 
     const tasks = [];
     if (selectedDocs.name) tasks.push(processDoc('name', selectedDocs.name));
     if (selectedDocs.address) tasks.push(processDoc('address', selectedDocs.address));
     if (selectedDocs.dob) tasks.push(processDoc('dob', selectedDocs.dob));
+    // Include optional handwritten document (extract all fields)
+    const handwritten = handwrittenFileEl && handwrittenFileEl.files && handwrittenFileEl.files[0];
+    if (handwritten) tasks.push(processDoc('handwritten', handwritten));
 
     if (tasks.length === 0) {
         alert('Please upload at least one document before submitting.');
@@ -269,6 +313,7 @@ async function submitData() {
         // Switch first so the review elements are visible in DOM
         switchView('view-review');
         renderReview(results);
+        reviewResults = results;
     } catch (e) {
         console.error('Render error:', e);
         alert('Unable to render review page. Please check console logs.');
@@ -285,7 +330,8 @@ function renderReview(results) {
     const order = [
         { key: 'name', label: 'Aadhaar/Voter ID (Name)' },
         { key: 'address', label: 'DL/Passport (Address)' },
-        { key: 'dob', label: 'Birth/SLC (DOB)' }
+        { key: 'dob', label: 'Birth/SLC (DOB)' },
+        { key: 'handwritten', label: 'Handwritten (All Fields)' }
     ];
     order.forEach(({ key, label }) => {
         const item = results[key];
@@ -319,18 +365,42 @@ function renderReview(results) {
                 catch(err) { console.error('Open doc failed:', err); }
             }
         } else {
-            // Populate right panel with extracted text and confidence
+            // Populate right panel with MAPPED data and verification score
             const fields = item.fields || {};
-            let total = 0, count = 0;
-            Object.values(fields).forEach(f => {
-                const conf = (f && typeof f === 'object' && f.confidence !== undefined) ? Number(f.confidence) : 1.0;
-                total += conf; count += 1;
+            const verification = item.verification || {};
+            // Build display text from mapped fields with per-doc filtering
+            const lines = [];
+            const filterKeys = key === 'name' ? ['name'] : key === 'address' ? ['address'] : key === 'dob' ? ['dob'] : null;
+            Object.entries(fields).forEach(([k, v]) => {
+                if (filterKeys && !filterKeys.includes(k)) return;
+                const val = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+                if (val !== undefined && val !== null && String(val).trim() !== '') {
+                    lines.push(`${k}: ${val}`);
+                }
             });
-            const avg = count ? total / count : 0;
+            // Only show mapped fields; avoid falling back to raw OCR text
+            const displayText = lines.length ? lines.join('\n') : '(no text)';
+
+            // Determine verification score if provided; fallback to avg confidence
+            let scorePct = null;
+            if (typeof verification?.score === 'number') {
+                scorePct = Math.round(verification.score * 100);
+            } else if (typeof verification?.overall_confidence === 'number') {
+                scorePct = Math.round(verification.overall_confidence * 100);
+            } else {
+                let total = 0, count = 0;
+                Object.values(fields).forEach(f => {
+                    const conf = (f && typeof f === 'object' && f.confidence !== undefined) ? Number(f.confidence) : 1.0;
+                    total += conf; count += 1;
+                });
+                const avg = count ? total / count : 0;
+                scorePct = Math.round(avg * 100);
+            }
+
             extractedTitleEl.textContent = item.fileName;
-            extractedConfidenceEl.textContent = `${Math.round(avg*100)}%`;
-            extractedConfidenceEl.className = `badge ${avg < 0.6 ? 'bg-warning text-dark' : 'bg-success'}`;
-            extractedTextEl.textContent = item.rawText || '(no text)';
+            extractedConfidenceEl.textContent = `${scorePct}%`;
+            extractedConfidenceEl.className = `badge ${scorePct < 60 ? 'bg-warning text-dark' : 'bg-success'}`;
+            extractedTextEl.textContent = displayText;
             extractedBoxEl.classList.remove('d-none');
         }
     };
@@ -339,18 +409,26 @@ function renderReview(results) {
     confidencePanelEl.innerHTML = '';
     Object.entries(results).forEach(([key, item]) => {
         const fields = item.fields || {};
-        let total = 0, count = 0;
-        Object.values(fields).forEach(f => {
-            const conf = (f && typeof f === 'object' && f.confidence !== undefined) ? Number(f.confidence) : 1.0;
-            total += conf; count += 1;
-        });
-        const avg = count ? total / count : 0;
+        const verification = item.verification || {};
+        let score = null;
+        if (typeof verification?.score === 'number') {
+            score = verification.score;
+        } else if (typeof verification?.overall_confidence === 'number') {
+            score = verification.overall_confidence;
+        } else {
+            let total = 0, count = 0;
+            Object.values(fields).forEach(f => {
+                const conf = (f && typeof f === 'object' && f.confidence !== undefined) ? Number(f.confidence) : 1.0;
+                total += conf; count += 1;
+            });
+            score = count ? total / count : 0;
+        }
         const label = key === 'name' ? 'Name Doc' : key === 'address' ? 'Address Doc' : 'DOB Doc';
         const html = `
             <div class="mb-3">
                 <div class="d-flex justify-content-between">
                     <span class="fw-semibold">${label}</span>
-                    <span class="badge ${avg < 0.6 ? 'bg-warning text-dark' : 'bg-success'}">${Math.round(avg*100)}%</span>
+                    <span class="badge ${score < 0.6 ? 'bg-warning text-dark' : 'bg-success'}">${Math.round(score*100)}%</span>
                 </div>
                 <div class="small text-muted">Average confidence across extracted fields.</div>
             </div>
@@ -358,5 +436,28 @@ function renderReview(results) {
         confidencePanelEl.insertAdjacentHTML('beforeend', html);
     });
 }
+
+// Finalize: download JSON and return to first page
+finalSubmitBtn?.addEventListener('click', () => {
+    try {
+        const payload = {
+            user: buildUserFromUI(),
+            documents: reviewResults || {},
+            timestamp: new Date().toISOString()
+        };
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
+        const a = document.createElement('a');
+        a.setAttribute('href', dataStr);
+        a.setAttribute('download', 'verification_review.json');
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    } catch (err) {
+        console.error('Finalize download failed:', err);
+        alert('Failed to generate JSON. See console for details.');
+    }
+    // Navigate back to dashboard (first page)
+    switchView('view-dashboard');
+});
 
 // No drag & drop after removing the upload zone
