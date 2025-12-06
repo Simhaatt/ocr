@@ -1,52 +1,114 @@
-# ocr
-mosip-ocr-project/
-├── 📁 backend/
-│   ├── app.py                 # Main Flask app initialization
-│   ├── requirements.txt
-│   ├── 📁 routes/             # API endpoints (separate files!)
-│   │   ├── __init__.py
-│   │   ├── extraction.py      # A1's endpoints
-│   │   ├── mapping.py         # A2's endpoints  
-│   │   └── verification.py    # A3's endpoints
-│   │
-│   ├── 📁 core/               # Business logic (separate files!)
-│   │   ├── __init__.py
-│   │   ├── ocr.py            # A1's OCR logic
-│   │   ├── mapper.py         # A2's mapping logic  
-│   │   └── verifier.py       # A3's verification logic
-│   │
-│   └── 📁 uploads/
-│
-└── 📁 frontend/            # TEAM B WORKSPACE (You)
-     ├── index.html          # Your Single Page Application
-     ├── styles.css          # Your Custom CSS
-     ├── app.js              # API Calls & UI Logic
-     └── 📁 assets/          # Images/Icons
+# MOSIP OCR Field Extraction & Verification
+
+This project provides an end-to-end flow for document OCR, field mapping, and verification against an applicant form.
+
+**Key Features**
+- OCR via PaddleOCR for images and PDFs, with dynamic preprocessing and PDF rasterization
+- Document-type aware field mapping (Aadhaar/Voter → Name, DL/Passport → Address, Birth/SLC → DOB, Handwritten → All)
+- Robust normalization and fuzzy verification for names, addresses, phones, DOB, and gender
+- Simple frontend to collect applicant details, upload docs, and review confidence
+
+## Project Structure
+- `backend/` FastAPI service
+    - `core/ocr.py` OCR utilities: instance cache, preprocess, image/PDF handling
+    - `core/mapper.py` Field mapping: regex + label-value fallback, doc-type filtering
+    - `core/verifier.py` Normalization and scoring + aggregation and decision
+    - `routes/` FastAPI routes for extraction, mapping, verification
+    - `app.py` FastAPI app with CORS and router setup
+- `frontend/` Static SPA
+    - `index.html`, `styles.css`, `app.js`
+- `tests/` Pytest suite for mapping/verification logic
+
+## Requirements
+Backend dependencies (see `backend/requirements.txt`):
+- `fastapi`, `uvicorn`
+- `paddleocr`
+- `numpy`, `opencv-python`
+- `PyMuPDF` (imported as `fitz`)
+- `rapidfuzz` (optional but recommended)
+- `unidecode`
+- `pydantic`
+
+## Setup
+Create a virtual environment and install dependencies.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r backend\requirements.txt
+```
+
+## Running
+- Start the backend API (FastAPI + Uvicorn):
+
+```powershell
+cd backend
+uvicorn app:app --reload --host 127.0.0.1 --port 8000
+```
+
+- Serve the frontend (static):
+
+```powershell
+cd frontend
+python -m http.server 5500
+```
+
+- Open the app at `http://127.0.0.1:5500/index.html`
+- Backend docs: `http://127.0.0.1:8000/docs`
+
+## API Overview
+Base prefix: `/api/v1`
+
+- OCR
+    - `POST /api/v1/ocr/extract-text` → returns extracted raw text from uploaded file (`file`)
+- Mapping + Verification
+    - `POST /api/v1/extract-fields` → maps fields from `raw_text` (supports `document_type`)
+    - `POST /api/v1/map-and-verify` → maps and verifies against `user`, filtered by `document_type`
+- Direct Verification
+    - `POST /api/v1/verification/verify` → verifies `ocr` vs `user` payloads
+
+## Document-Type Behavior
+- `aadhar` or `voter`: extract and show only `name`; confidence equals name match vs form
+- `dl` or `passport`: extract and show only `address`; confidence equals address match
+- `birth` or `slc`: extract and show only `dob`; confidence equals date match
+- `handwritten`: show all fields found; confidence aggregates available fields
+
+## Mapping Details (`backend/core/mapper.py`)
+- Combines English and Hindi regex patterns for core fields
+- Fallback label-value parser for lines like `Name: John Smith`, `Address: 123 Elm St`, `Phone number: 555-12345`, etc.
+- Document-type filtering ensures the review displays only relevant fields
+- Cleaning:
+    - Phone → digits only (strip punctuation/spaces)
+    - Email → lowercase, trim spaces, fix common typos (`qmail` → `gmail`)
+    - Pincode → digits only, up to 6
+
+## Verification Details (`backend/core/verifier.py`)
+- Normalization:
+    - Unicode (NFKD + transliteration via `unidecode`)
+    - Names/Addresses → lowercase, punctuation removal, abbreviation expansion (e.g., `st.` → `street`), stopword removal
+    - Phone → digits-only; NSN (last 10 digits) logic
+    - DOB → parse common formats to ISO `YYYY-MM-DD`
+- Scoring per field (0..1): name, address, phone, dob, gender
+- Aggregation:
+    - Weighted average over available fields (default weights: name 0.35, dob 0.30, phone 0.15, address 0.15, gender 0.05)
+    - Decision thresholds: `MATCH (>=0.85)`, `REVIEW (>=0.6)`, else `MISMATCH`
+
+## Frontend Details (`frontend/app.js`)
+- Applicant form with required fields (all except Middle Name)
+- Document uploads per type; processes OCR then mapping+verification
+- Review panel shows mapped-only fields per doc type and confidence badge
+- Edit/Save UX: only Edit on top; Save appears at bottom when editing
 
 ## Testing
+- Run tests:
 
-This project uses `pytest` for minimal verification of mapper + verifier integration.
+```powershell
+pytest -q
+```
 
-Current tests (combined in `tests/test_age_note.py`):
-- `test_age_mismatch_note`: Ensures an `age_mismatch(...)` note is added when the stated age differs from the age derived from `DOB` by more than 1 year.
-- `test_age_consistent_no_mismatch`: Verifies no `age_mismatch` note is produced when the stated age matches the derived age (computed dynamically to avoid drifting with time).
+## Notes
+- If PaddleOCR flags differ across versions, `core/ocr.py` handles new vs old APIs.
+- CORS is open by default; adjust `backend/app.py` for production.
 
-### Running Tests
-
-1. Activate the virtual environment (if present):
-    ```powershell
-    .\.venv\Scripts\Activate.ps1
-    ```
-2. Install backend dependencies:
-    ```powershell
-    python -m pip install -r backend\requirements.txt
-    ```
-3. Run pytest:
-    ```powershell
-    python -m pytest -q
-    ```
-
-### Notes
-- Age is not part of the verification confidence score; it only contributes informational notes.
-- The test file derives the expected age from the DOB to remain stable over time.
-- Add more tests if field coverage (e.g., address/phone edge cases) becomes necessary.
+## License
+Proprietary project. Do not redistribute without permission.
