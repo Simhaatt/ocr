@@ -7,6 +7,7 @@ This project provides an end-to-end flow for document OCR, field mapping, and ve
 - Document-type aware field mapping (Aadhaar/Voter → Name, DL/Passport → Address, Birth/SLC → DOB, Handwritten → All)
 - Robust normalization and fuzzy verification for names, addresses, phones, DOB, and gender
 - Simple frontend to collect applicant details, upload docs, and review confidence
+- Inline edit/save of extracted text per document on the review page; saving re-runs map+verify to refresh confidence scores
 
 ## Project Structure
 - `backend/` FastAPI service
@@ -97,7 +98,8 @@ Base prefix: `/api/v1`
 - Applicant form with required fields (all except Middle Name)
 - Document uploads per type; processes OCR then mapping+verification
 - Review panel shows mapped-only fields per doc type and confidence badge
-- Edit/Save UX: only Edit on top; Save appears at bottom when editing
+- Edit/Save UX: only Edit on top; Save appears at bottom when editing applicant data
+- Review page extracted-text panel now has Edit/Save to adjust OCR text per doc and recompute confidence
 
 ## Testing
 - Run tests:
