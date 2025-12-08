@@ -52,6 +52,9 @@ const extractedBoxEl = document.getElementById('extracted-box');
 const extractedTitleEl = document.getElementById('extracted-title');
 const extractedConfidenceEl = document.getElementById('extracted-confidence');
 const extractedTextEl = document.getElementById('extracted-text');
+const extractedTextInputEl = document.getElementById('extracted-text-input');
+const editExtractedBtn = document.getElementById('edit-extracted');
+const saveExtractedBtn = document.getElementById('save-extracted');
 // Edit/Save controls
 const editBtn = document.getElementById('edit-applicant');
 const saveBtn = document.getElementById('save-applicant');
@@ -61,6 +64,9 @@ let currentObjectUrl = null; // Track image memory for privacy cleanup
 const selectedDocs = { name: null, address: null, dob: null };
 let reviewResults = null; // Persist results for finalize download
 let isEditingApplicant = false;
+let currentDocKey = null;
+let originalExtractedText = '';
+let isEditingExtracted = false;
 
 function switchView(viewName) {
     Object.values(views).forEach(el => el.classList.add('d-none'));
@@ -401,6 +407,19 @@ function renderReview(results) {
             extractedConfidenceEl.textContent = `${scorePct}%`;
             extractedConfidenceEl.className = `badge ${scorePct < 60 ? 'bg-warning text-dark' : 'bg-success'}`;
             extractedTextEl.textContent = displayText;
+            if (extractedTextInputEl) {
+                extractedTextInputEl.value = displayText;
+                extractedTextInputEl.classList.add('d-none');
+            }
+            if (extractedTextEl) extractedTextEl.classList.remove('d-none');
+            if (editExtractedBtn) editExtractedBtn.classList.remove('d-none');
+            if (saveExtractedBtn) {
+                saveExtractedBtn.classList.add('d-none');
+                saveExtractedBtn.disabled = true;
+            }
+            currentDocKey = key;
+            originalExtractedText = displayText;
+            isEditingExtracted = false;
             extractedBoxEl.classList.remove('d-none');
         }
     };
@@ -423,7 +442,7 @@ function renderReview(results) {
             });
             score = count ? total / count : 0;
         }
-        const label = key === 'name' ? 'Name Doc' : key === 'address' ? 'Address Doc' : 'DOB Doc';
+        const label = key === 'name' ? 'Name Doc' : key === 'address' ? 'Address Doc' : key === 'dob' ? 'DOB Doc' : 'Handwritten Doc';
         const html = `
             <div class="mb-3">
                 <div class="d-flex justify-content-between">
@@ -436,6 +455,81 @@ function renderReview(results) {
         confidencePanelEl.insertAdjacentHTML('beforeend', html);
     });
 }
+
+// --- INLINE EDITING FOR EXTRACTED TEXT ON REVIEW ---
+editExtractedBtn?.addEventListener('click', () => {
+    if (!currentDocKey || !extractedTextInputEl || !extractedTextEl) return;
+    isEditingExtracted = true;
+    extractedTextEl.classList.add('d-none');
+    extractedTextInputEl.classList.remove('d-none');
+    extractedTextInputEl.focus();
+    originalExtractedText = extractedTextInputEl.value;
+    if (editExtractedBtn) editExtractedBtn.classList.add('d-none');
+    if (saveExtractedBtn) {
+        saveExtractedBtn.classList.remove('d-none');
+        saveExtractedBtn.disabled = true;
+    }
+});
+
+extractedTextInputEl?.addEventListener('input', () => {
+    if (!isEditingExtracted || !saveExtractedBtn || !extractedTextInputEl) return;
+    const changed = extractedTextInputEl.value !== originalExtractedText;
+    saveExtractedBtn.disabled = !changed;
+});
+
+saveExtractedBtn?.addEventListener('click', async () => {
+    if (!currentDocKey || !extractedTextInputEl || !saveExtractedBtn) return;
+    const newText = extractedTextInputEl.value;
+    const changed = newText !== originalExtractedText;
+    if (!changed) {
+        // Nothing to save; just exit edit mode
+        extractedTextInputEl.classList.add('d-none');
+        if (extractedTextEl) extractedTextEl.classList.remove('d-none');
+        if (saveExtractedBtn) saveExtractedBtn.classList.add('d-none');
+        if (editExtractedBtn) editExtractedBtn.classList.remove('d-none');
+        isEditingExtracted = false;
+        return;
+    }
+
+    saveExtractedBtn.disabled = true;
+    const prevLabel = saveExtractedBtn.textContent;
+    saveExtractedBtn.textContent = 'Saving...';
+    try {
+        const user = buildUserFromUI();
+        const docTypeMap = { name: 'aadhar', address: 'dl', dob: 'birth', handwritten: null };
+        const document_type = docTypeMap[currentDocKey] || null;
+
+        const mapRes = await fetch(ENDPOINTS.map, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw_text: newText, user, document_type })
+        });
+        if (!mapRes.ok) throw new Error(`Update failed (${mapRes.status})`);
+        const mapJson = await mapRes.json();
+        const fields = mapJson.mapped || mapJson.mapped_fields || mapJson.data || mapJson;
+        const verification = mapJson.verification || null;
+
+        // Persist updated results for finalize and confidence panel
+        reviewResults = reviewResults || {};
+        reviewResults[currentDocKey] = {
+            ...(reviewResults[currentDocKey] || {}),
+            rawText: newText,
+            fields,
+            verification
+        };
+
+        // Re-render panels and reopen the same doc to reflect new confidence
+        renderReview(reviewResults);
+        const reopenBtn = docListEl?.querySelector(`button[data-action="view-text"][data-key="${currentDocKey}"]`);
+        reopenBtn?.click();
+    } catch (err) {
+        console.error(err);
+        alert(`Unable to save edits: ${err.message}`);
+        saveExtractedBtn.disabled = false;
+    } finally {
+        saveExtractedBtn.textContent = prevLabel || 'Save';
+    }
+});
 
 // Finalize: download JSON and return to first page
 finalSubmitBtn?.addEventListener('click', () => {

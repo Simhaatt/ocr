@@ -261,10 +261,17 @@
                         <div class="card-body">
                             <div id="extracted-box" class="mb-3 d-none">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-semibold" id="extracted-title">Selected Document</span>
-                                    <span class="badge" id="extracted-confidence">...</span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="fw-semibold" id="extracted-title">Selected Document</span>
+                                        <span class="badge" id="extracted-confidence">...</span>
+                                    </div>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button type="button" id="edit-extracted" class="btn btn-outline-secondary">Edit</button>
+                                        <button type="button" id="save-extracted" class="btn btn-mosip d-none" disabled>Save</button>
+                                    </div>
                                 </div>
                                 <pre id="extracted-text" class="small bg-light rounded p-2" style="max-height: 260px; overflow:auto;"></pre>
+                                <textarea id="extracted-text-input" class="form-control form-control-sm d-none" style="max-height: 260px; min-height: 140px; overflow:auto;"></textarea>
                             </div>
                             <hr>
                             <div id="confidence-panel"></div>
