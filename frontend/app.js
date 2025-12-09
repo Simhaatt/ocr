@@ -5,459 +5,452 @@ const ENDPOINTS = {
     ocrExtract: `${BASE_URL}/api/v1/ocr/extract-text`,
     // Mapping + Verification using extracted raw text
     map: `${BASE_URL}/api/v1/map-and-verify`,
-    // Optional submit endpoint (may not exist; fallback provided)
-    submit: `${BASE_URL}/api/v1/submit`
+    // MOSIP Integration endpoints (NEW)
+    mosip: {
+        integrate: `${BASE_URL}/api/v1/mosip/integrate`,
+        verifyAndSubmit: `${BASE_URL}/api/v1/mosip/verify-and-submit`,
+        status: `${BASE_URL}/api/v1/mosip/status`,
+        test: `${BASE_URL}/api/v1/mosip/test`,
+        batchSubmit: `${BASE_URL}/api/v1/mosip/batch-submit`
+    }
 };
 
-// --- DOM ELEMENTS ---
+// --- DOM ELEMENTS (Add MOSIP elements) ---
 const views = {
     dashboard: document.getElementById('view-dashboard'),
     form: document.getElementById('view-form'),
     upload: document.getElementById('view-upload'),
     verify: document.getElementById('view-verify'),
     success: document.getElementById('view-success'),
-    review: document.getElementById('view-review')
+    review: document.getElementById('view-review'),
+    mosip: document.getElementById('view-mosip'), // NEW MOSIP view
+    mosipStatus: document.getElementById('view-mosip-status') // NEW MOSIP status view
 };
 
-// Specific verification document inputs (any of these triggers OCR)
-const aadharFileEl = document.getElementById('aadharFile');
-const passportFileEl = document.getElementById('passportFile');
-const birthCertFileEl = document.getElementById('birthCertFile');
-// Applicant form fields
-const firstNameEl = document.getElementById('firstName');
-const middleNameEl = document.getElementById('middleName');
-const lastNameEl = document.getElementById('lastName');
-const dobEl = document.getElementById('dob');
-const genderEl = document.getElementById('gender');
-const addressEl = document.getElementById('address');
-const emailEl = document.getElementById('email');
-const phoneEl = document.getElementById('phone');
+// MOSIP specific elements (add these to your HTML)
+const mosipSubmitBtn = document.getElementById('mosip-submit-btn');
+const mosipBackBtn = document.getElementById('mosip-back-btn');
+const mosipStatusCheckBtn = document.getElementById('mosip-status-check');
+const mosipPreRegIdEl = document.getElementById('mosip-pre-reg-id');
+const mosipStatusEl = document.getElementById('mosip-status');
+const mosipTestBtn = document.getElementById('mosip-test-btn');
+const mosipConnectionStatus = document.getElementById('mosip-connection-status');
 
-// Editable review inputs on upload page
-const editNameEl = document.getElementById('edit-name');
-const editDobEl = document.getElementById('edit-dob');
-const editGenderEl = document.getElementById('edit-gender');
-const editAddressEl = document.getElementById('edit-address');
-const editEmailEl = document.getElementById('edit-email');
-const editPhoneEl = document.getElementById('edit-phone');
-const loadingSpinner = document.getElementById('loading-spinner');
-const verifyForm = document.getElementById('verify-form');
-const previewImg = document.getElementById('preview-img');
-// No dedicated upload zone after UI change
-// Review page elements
-const docListEl = document.getElementById('doc-list');
-const confidencePanelEl = document.getElementById('confidence-panel');
-const finalSubmitBtn = document.getElementById('final-submit');
-const extractedBoxEl = document.getElementById('extracted-box');
-const extractedTitleEl = document.getElementById('extracted-title');
-const extractedConfidenceEl = document.getElementById('extracted-confidence');
-const extractedTextEl = document.getElementById('extracted-text');
-// Edit/Save controls
-const editBtn = document.getElementById('edit-applicant');
-const saveBtn = document.getElementById('save-applicant');
-const handwrittenFileEl = document.getElementById('handwrittenFile');
-
-let currentObjectUrl = null; // Track image memory for privacy cleanup
-const selectedDocs = { name: null, address: null, dob: null };
-let reviewResults = null; // Persist results for finalize download
-let isEditingApplicant = false;
-
+// Update switchView to include MOSIP views
 function switchView(viewName) {
-    Object.values(views).forEach(el => el.classList.add('d-none'));
+    Object.values(views).forEach(el => el && el.classList.add('d-none'));
     const key = viewName.replace('view-', '');
-    views[key].classList.remove('d-none');
+    if (views[key]) {
+        views[key].classList.remove('d-none');
+    }
 }
-// Expose for inline onclick handlers
-window.switchView = switchView;
-// Attach handler to Start button (dashboard -> form)
-document.getElementById('start-registration')?.addEventListener('click', () => switchView('view-form'));
-// Handle form submission to move to upload step
-const continueBtn = document.getElementById('continue-to-upload');
-continueBtn?.addEventListener('click', () => {
-        const form = document.getElementById('applicant-form');
-    if (form && !form.checkValidity()) {
-        form.reportValidity();
+
+// Add MOSIP button to your review page (modify your HTML)
+// Add this button near the finalSubmitBtn in your review page HTML:
+// <button id="submit-to-mosip" class="btn btn-primary">Submit to MOSIP</button>
+const submitToMosipBtn = document.getElementById('submit-to-mosip');
+
+// --- MOSIP INTEGRATION FUNCTIONS ---
+
+// Test MOSIP connection
+async function testMOSIPConnection() {
+    try {
+        if (mosipConnectionStatus) {
+            mosipConnectionStatus.innerHTML = '<span class="text-info">Testing connection...</span>';
+        }
+        
+        const response = await fetch(ENDPOINTS.mosip.test);
+        const data = await response.json();
+        
+        if (response.ok) {
+            if (mosipConnectionStatus) {
+                mosipConnectionStatus.innerHTML = 
+                    '<span class="text-success">✓ Connected to MOSIP Sandbox</span>';
+            }
+            console.log('MOSIP Connection Test:', data);
+            return true;
+        } else {
+            throw new Error(data.detail || 'Connection failed');
+        }
+    } catch (error) {
+        console.error('MOSIP Connection Error:', error);
+        if (mosipConnectionStatus) {
+            mosipConnectionStatus.innerHTML = 
+                `<span class="text-danger">✗ Connection failed: ${error.message}</span>`;
+        }
+        return false;
+    }
+}
+
+// Submit all documents and data to MOSIP
+async function submitToMOSIP() {
+    if (!reviewResults) {
+        alert('Please process documents first before submitting to MOSIP');
         return;
     }
-    // Proceed to upload page
-    switchView('view-upload');
 
-    // Populate editable review inputs on upload page
-    const fullName = [firstNameEl?.value, middleNameEl?.value, lastNameEl?.value]
-        .filter(Boolean)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    if (editNameEl) editNameEl.value = fullName || '';
-    if (editDobEl) editDobEl.value = dobEl?.value || '';
-    if (editGenderEl) editGenderEl.value = genderEl?.value || '';
-    if (editAddressEl) editAddressEl.value = addressEl?.value || '';
-    if (editEmailEl) editEmailEl.value = emailEl?.value || '';
-    if (editPhoneEl) editPhoneEl.value = phoneEl?.value || '';
-});
-
-// Helper to build user object from either original form or editable review inputs
-function buildUserFromUI() {
-    const nameFromReview = editNameEl?.value?.trim();
-    const dobFromReview = editDobEl?.value || '';
-    const genderFromReview = editGenderEl?.value || '';
-    const addressFromReview = editAddressEl?.value || '';
-    const emailFromReview = editEmailEl?.value || '';
-    const phoneFromReview = editPhoneEl?.value || '';
-
-    const nameFromForm = [firstNameEl?.value, middleNameEl?.value, lastNameEl?.value]
-        .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
-
-    return {
-        name: nameFromReview || nameFromForm || '',
-        dob: dobFromReview || dobEl?.value || '',
-        gender: genderFromReview || genderEl?.value || '',
-        address: addressFromReview || addressEl?.value || '',
-        email: emailFromReview || emailEl?.value || '',
-        phone: phoneFromReview || phoneEl?.value || ''
-    };
-}
-
-// --- MAIN UPLOAD LOGIC (supports any of the three inputs) ---
-async function handleSelectedFile(file) {
-    if (!file) return;
-
-    // 1. PRIVACY CLEANUP: Revoke old image memory
-    if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
-
-    currentObjectUrl = URL.createObjectURL(file);
-    previewImg.src = currentObjectUrl;
-    if (previewImg.classList.contains('d-none')) previewImg.classList.remove('d-none');
-
-    loadingSpinner.classList.remove('d-none');
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-        console.log('🚀 Step 1: Sending to OCR extraction...');
-        const ocrRes = await fetch(ENDPOINTS.ocrExtract, { method: 'POST', body: formData });
-        if (!ocrRes.ok) throw new Error(`OCR Extraction Failed: ${ocrRes.status}`);
-
-        const ocrJson = await ocrRes.json();
-        const rawText = ocrJson.extracted_text || ocrJson.raw_text || ocrJson.data?.raw_text || '';
-
-        const user = buildUserFromUI();
-        console.log('🚀 Step 2: Sending to Mapping & Verification...');
-        const mapRes = await fetch(ENDPOINTS.map, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ raw_text: rawText, user })
-        });
-        if (!mapRes.ok) throw new Error(`Mapping Failed: ${mapRes.status}`);
-
-        const mapJson = await mapRes.json();
-        // Keep user on the upload page; do not switch views here.
-        // We only run per-document OCR/mapping and navigate on Confirm & Submit.
-    } catch (err) {
-        console.error(err);
-        alert(`Error: ${err.message}. Is Backend running on port 8000?`);
-    } finally {
-        loadingSpinner.classList.add('d-none');
-    }
-}
-
-[aadharFileEl, passportFileEl, birthCertFileEl].forEach((el) => {
-    if (!el) return;
-    el.addEventListener('change', (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (el === aadharFileEl) selectedDocs.name = file;
-        if (el === passportFileEl) selectedDocs.address = file;
-        if (el === birthCertFileEl) selectedDocs.dob = file;
-    });
-});
-
-// Optional handwritten doc tracking
-handwrittenFileEl?.addEventListener('change', (e) => {
-    const file = e.target.files && e.target.files[0];
-    // We won't process this unless present; treat as supplemental (no mapping changes here)
-    if (file) {
-        console.log('Optional handwritten doc selected:', file.name);
-    }
-});
-
-// Toggle editable state for preview inputs
-editBtn?.addEventListener('click', () => {
-    isEditingApplicant = true;
-    [editNameEl, editDobEl, editGenderEl, editAddressEl, editEmailEl, editPhoneEl].forEach(el => el && (el.disabled = false));
-    // Show bottom Save button when editing
-    const saveBtnEl = document.getElementById('save-applicant');
-    if (saveBtnEl) saveBtnEl.classList.remove('d-none');
-});
-
-saveBtn?.addEventListener('click', () => {
-    isEditingApplicant = false;
-    [editNameEl, editDobEl, editGenderEl, editAddressEl, editEmailEl, editPhoneEl].forEach(el => el && (el.disabled = true));
-    // Hide bottom Save button when not editing
-    const saveBtnEl = document.getElementById('save-applicant');
-    if (saveBtnEl) saveBtnEl.classList.add('d-none');
-});
-
-// --- RENDER FORM (Updated for Team A's Test Structure) ---
-function renderForm(data) {
-    verifyForm.innerHTML = '';
-    
-    // 1. CHECK FOR VERIFICATION NOTES (The "Age Mismatch" Bonus)
-    // The test shows: data.verification.notes = ["age_mismatch..."]
-    if (data.verification && data.verification.notes && data.verification.notes.length > 0) {
-        const warnings = data.verification.notes.join("<br>");
-        const warningHtml = `
-            <div class="alert alert-warning d-flex align-items-center mb-3" role="alert">
-                <span class="me-2 fs-4">⚠️</span>
-                <div>
-                    <strong>Verification Warning:</strong><br>
-                    ${warnings}
-                </div>
-            </div>
-        `;
-        verifyForm.insertAdjacentHTML('beforeend', warningHtml);
-    }
-
-    // 2. NORMALIZE THE DATA STRUCTURE
-    // The test uses "mapped", but we keep support for others just in case
-    if (data.mapped) {
-        data = data.mapped;
-    } else if (data.verification && data.verification.mapped_fields) {
-        data = data.verification.mapped_fields;
-    } else if (data.data) {
-        data = data.data;
-    }
-
-    // 3. GENERATE FIELDS
-    for (const [key, field] of Object.entries(data)) {
-        // Handle value/confidence objects OR simple strings
-        const val = field.value || field || "";
-        // If confidence is missing, assume 1.0 (High)
-        const conf = (field.confidence !== undefined) ? field.confidence : 1.0;
-        
-        const isLowConf = conf < 0.6;
-        const borderClass = isLowConf ? 'border-warning bg-warning bg-opacity-10' : 'border-success';
-        
-        const html = `
-            <div class="mb-3">
-                <label class="form-label text-uppercase small fw-bold text-secondary">${key}</label>
-                <div class="input-group">
-                    <input type="text" data-key="${key}" class="form-control ${borderClass}" value="${val}">
-                    <span class="input-group-text ${isLowConf ? 'bg-warning' : 'bg-success text-white'}">
-                        ${isLowConf ? '⚠️' : '✓'}
-                    </span>
-                </div>
-                ${isLowConf ? `<small class="text-warning fw-bold">Low Confidence (${(conf*100).toFixed(0)}%) - Check Original</small>` : ''}
-            </div>
-        `;
-        verifyForm.insertAdjacentHTML('beforeend', html);
-    }
-}
-
-// --- SUBMIT DATA (Privacy & Fallback Version) ---
-async function submitData() {
-    // Process selected documents and render the review page with confidence scores
     const user = buildUserFromUI();
-    const results = {};
+    const loadingEl = document.getElementById('mosip-loading');
+    const resultEl = document.getElementById('mosip-result');
+    
+    if (loadingEl) loadingEl.classList.remove('d-none');
+    if (resultEl) resultEl.innerHTML = '';
 
-    const processDoc = async (key, file) => {
-        const fd = new FormData();
-        fd.append('file', file);
-        const ocrRes = await fetch(ENDPOINTS.ocrExtract, { method: 'POST', body: fd });
-        if (!ocrRes.ok) throw new Error(`OCR failed for ${key}: ${ocrRes.status}`);
-        const ocrJson = await ocrRes.json();
-        const rawText = ocrJson.extracted_text || ocrJson.raw_text || ocrJson.data?.raw_text || '';
-        // Map key to backend document_type for focused verification
-        const docTypeMap = { name: 'aadhar', address: 'dl', dob: 'birth', handwritten: null };
-        const document_type = docTypeMap[key] || null;
+    try {
+        // First, test connection
+        const isConnected = await testMOSIPConnection();
+        if (!isConnected) {
+            throw new Error('Cannot connect to MOSIP sandbox. Please check configuration.');
+        }
 
-        const mapRes = await fetch(ENDPOINTS.map, {
+        // For each document, submit to MOSIP
+        const results = [];
+        const documents = [];
+
+        // Process name document
+        if (selectedDocs.name && reviewResults.name) {
+            documents.push({
+                file: selectedDocs.name,
+                data: reviewResults.name,
+                type: 'POI' // Proof of Identity
+            });
+        }
+
+        // Process address document
+        if (selectedDocs.address && reviewResults.address) {
+            documents.push({
+                file: selectedDocs.address,
+                data: reviewResults.address,
+                type: 'POA' // Proof of Address
+            });
+        }
+
+        // Process DOB document
+        if (selectedDocs.dob && reviewResults.dob) {
+            documents.push({
+                file: selectedDocs.dob,
+                data: reviewResults.dob,
+                type: 'DOB' // Date of Birth proof
+            });
+        }
+
+        if (documents.length === 0) {
+            throw new Error('No documents to submit to MOSIP');
+        }
+
+        // Submit first document (usually ID) for pre-registration
+        const primaryDoc = documents[0];
+        
+        // Create FormData for the primary document
+        const formData = new FormData();
+        formData.append('file', primaryDoc.file);
+        
+        // Add manual verification data if available
+        const manualData = {};
+        if (user.name) manualData.Name = user.name;
+        if (user.dob) manualData.Date_of_Birth = user.dob;
+        if (user.gender) manualData.Gender = user.gender;
+        if (user.address) manualData.Address = user.address;
+        if (user.phone) manualData.Phone = user.phone;
+        if (user.email) manualData.Email = user.email;
+        
+        if (Object.keys(manualData).length > 0) {
+            formData.append('manual_data', JSON.stringify(manualData));
+        }
+
+        // Submit to MOSIP
+        console.log('🚀 Submitting to MOSIP...');
+        const response = await fetch(ENDPOINTS.mosip.integrate, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ raw_text: rawText, user, document_type })
+            body: formData
         });
-        if (!mapRes.ok) throw new Error(`Map failed for ${key}: ${mapRes.status}`);
-        const mapJson = await mapRes.json();
-        // Prefer structured mapped fields
-        const fields = mapJson.mapped || mapJson.mapped_fields || mapJson.data || mapJson;
-        // Extract verification info if available
-        const verification = mapJson.verification || null;
-        const url = URL.createObjectURL(file);
-        results[key] = { fileName: file.name, rawText, fields, verification, url };
-    };
 
-    const tasks = [];
-    if (selectedDocs.name) tasks.push(processDoc('name', selectedDocs.name));
-    if (selectedDocs.address) tasks.push(processDoc('address', selectedDocs.address));
-    if (selectedDocs.dob) tasks.push(processDoc('dob', selectedDocs.dob));
-    // Include optional handwritten document (extract all fields)
-    const handwritten = handwrittenFileEl && handwrittenFileEl.files && handwrittenFileEl.files[0];
-    if (handwritten) tasks.push(processDoc('handwritten', handwritten));
+        const result = await response.json();
+        
+        if (response.ok && result.status === 'success') {
+            // Store pre-registration ID
+            const preRegId = result.pre_registration_id;
+            
+            // Switch to MOSIP success view
+            switchView('view-mosip');
+            
+            // Display success message
+            if (resultEl) {
+                resultEl.innerHTML = `
+                    <div class="alert alert-success">
+                        <h4 class="alert-heading">✓ Registration Successful!</h4>
+                        <p>Your pre-registration has been submitted to MOSIP.</p>
+                        <hr>
+                        <p class="mb-0">
+                            <strong>Pre-registration ID:</strong> ${preRegId}<br>
+                            <strong>Next Steps:</strong> ${result.message || 'Awaiting verification'}
+                        </p>
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-outline-primary" onclick="checkMOSIPStatus('${preRegId}')">
+                            Check Registration Status
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="downloadMOSIPReport(${JSON.stringify(result)})">
+                            Download Registration Report
+                        </button>
+                    </div>
+                `;
+            }
+            
+            // Store in localStorage for status checking
+            localStorage.setItem('last_mosip_pre_reg_id', preRegId);
+            localStorage.setItem('last_mosip_response', JSON.stringify(result));
+            
+            console.log('MOSIP Registration Success:', result);
+            
+        } else {
+            throw new Error(result.message || result.detail || 'MOSIP registration failed');
+        }
+        
+    } catch (error) {
+        console.error('MOSIP Submission Error:', error);
+        if (resultEl) {
+            resultEl.innerHTML = `
+                <div class="alert alert-danger">
+                    <h4 class="alert-heading">✗ Registration Failed</h4>
+                    <p>${error.message}</p>
+                    <hr>
+                    <p class="mb-0">Please check your documents and try again.</p>
+                </div>
+            `;
+        }
+    } finally {
+        if (loadingEl) loadingEl.classList.add('d-none');
+    }
+}
 
-    if (tasks.length === 0) {
-        alert('Please upload at least one document before submitting.');
+// Check MOSIP registration status
+async function checkMOSIPStatus(preRegId) {
+    if (!preRegId) {
+        preRegId = document.getElementById('mosip-status-input')?.value || 
+                   localStorage.getItem('last_mosip_pre_reg_id');
+    }
+    
+    if (!preRegId) {
+        alert('Please enter a Pre-registration ID');
         return;
     }
-
-    loadingSpinner.classList.remove('d-none');
+    
+    const statusLoading = document.getElementById('mosip-status-loading');
+    const statusResult = document.getElementById('mosip-status-result');
+    
+    if (statusLoading) statusLoading.classList.remove('d-none');
+    if (statusResult) statusResult.innerHTML = '';
+    
     try {
-        await Promise.all(tasks);
-    } catch (e) {
-        console.error(e);
-        alert(`Error during document processing: ${e.message}`);
-    } finally {
-        loadingSpinner.classList.add('d-none');
-    }
-
-    try {
-        // Switch first so the review elements are visible in DOM
-        switchView('view-review');
-        renderReview(results);
-        reviewResults = results;
-    } catch (e) {
-        console.error('Render error:', e);
-        alert('Unable to render review page. Please check console logs.');
-    }
-}
-
-function renderReview(results) {
-    console.log('Rendering review with results:', results);
-    // Left list with view buttons
-    if (!docListEl || !confidencePanelEl || !extractedBoxEl || !extractedTitleEl || !extractedConfidenceEl || !extractedTextEl) {
-        throw new Error('Review page elements not found');
-    }
-    docListEl.innerHTML = '';
-    const order = [
-        { key: 'name', label: 'Aadhaar/Voter ID (Name)' },
-        { key: 'address', label: 'DL/Passport (Address)' },
-        { key: 'dob', label: 'Birth/SLC (DOB)' },
-        { key: 'handwritten', label: 'Handwritten (All Fields)' }
-    ];
-    order.forEach(({ key, label }) => {
-        const item = results[key];
-        if (!item) return;
-        const html = `
-            <div class="list-group-item mb-2">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <div class="fw-semibold">${label}</div>
-                        <div class="text-muted small">${item.fileName}</div>
-                    </div>
-                    <div class="btn-group">
-                        <button class="btn btn-outline-secondary btn-sm" data-action="view-doc" data-key="${key}">View Document</button>
-                        <button class="btn btn-outline-secondary btn-sm" data-action="view-text" data-key="${key}">View Extracted Text</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        docListEl.insertAdjacentHTML('beforeend', html);
-    });
-
-    docListEl.onclick = (e) => {
-        const btn = e.target.closest('button[data-action]');
-        if (!btn) return;
-        const key = btn.getAttribute('data-key');
-        const item = results[key];
-        if (!item) return;
-        if (btn.getAttribute('data-action') === 'view-doc') {
-            if (item.url) {
-                try { window.open(item.url, '_blank'); }
-                catch(err) { console.error('Open doc failed:', err); }
-            }
-        } else {
-            // Populate right panel with MAPPED data and verification score
-            const fields = item.fields || {};
-            const verification = item.verification || {};
-            // Build display text from mapped fields with per-doc filtering
-            const lines = [];
-            const filterKeys = key === 'name' ? ['name'] : key === 'address' ? ['address'] : key === 'dob' ? ['dob'] : null;
-            Object.entries(fields).forEach(([k, v]) => {
-                if (filterKeys && !filterKeys.includes(k)) return;
-                const val = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-                if (val !== undefined && val !== null && String(val).trim() !== '') {
-                    lines.push(`${k}: ${val}`);
+        const response = await fetch(`${ENDPOINTS.mosip.status}/${preRegId}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+            if (statusResult) {
+                let statusHtml = `
+                    <div class="alert alert-info">
+                        <h4 class="alert-heading">Registration Status</h4>
+                        <p><strong>Pre-registration ID:</strong> ${preRegId}</p>
+                `;
+                
+                // Parse and display status
+                if (data.status) {
+                    const status = data.status;
+                    let statusClass = 'secondary';
+                    let statusIcon = '⏳';
+                    
+                    if (status.includes('approved') || status.includes('success')) {
+                        statusClass = 'success';
+                        statusIcon = '✓';
+                    } else if (status.includes('rejected') || status.includes('failed')) {
+                        statusClass = 'danger';
+                        statusIcon = '✗';
+                    } else if (status.includes('pending') || status.includes('processing')) {
+                        statusClass = 'warning';
+                        statusIcon = '🔄';
+                    }
+                    
+                    statusHtml += `
+                        <p><strong>Status:</strong> 
+                            <span class="badge bg-${statusClass}">${statusIcon} ${status}</span>
+                        </p>
+                    `;
                 }
-            });
-            // Only show mapped fields; avoid falling back to raw OCR text
-            const displayText = lines.length ? lines.join('\n') : '(no text)';
-
-            // Determine verification score if provided; fallback to avg confidence
-            let scorePct = null;
-            if (typeof verification?.score === 'number') {
-                scorePct = Math.round(verification.score * 100);
-            } else if (typeof verification?.overall_confidence === 'number') {
-                scorePct = Math.round(verification.overall_confidence * 100);
-            } else {
-                let total = 0, count = 0;
-                Object.values(fields).forEach(f => {
-                    const conf = (f && typeof f === 'object' && f.confidence !== undefined) ? Number(f.confidence) : 1.0;
-                    total += conf; count += 1;
-                });
-                const avg = count ? total / count : 0;
-                scorePct = Math.round(avg * 100);
+                
+                // Display additional details if available
+                if (data.details) {
+                    statusHtml += `<p><strong>Details:</strong> ${JSON.stringify(data.details)}</p>`;
+                }
+                
+                statusHtml += `</div>`;
+                statusResult.innerHTML = statusHtml;
             }
-
-            extractedTitleEl.textContent = item.fileName;
-            extractedConfidenceEl.textContent = `${scorePct}%`;
-            extractedConfidenceEl.className = `badge ${scorePct < 60 ? 'bg-warning text-dark' : 'bg-success'}`;
-            extractedTextEl.textContent = displayText;
-            extractedBoxEl.classList.remove('d-none');
-        }
-    };
-
-    // Right confidence panel
-    confidencePanelEl.innerHTML = '';
-    Object.entries(results).forEach(([key, item]) => {
-        const fields = item.fields || {};
-        const verification = item.verification || {};
-        let score = null;
-        if (typeof verification?.score === 'number') {
-            score = verification.score;
-        } else if (typeof verification?.overall_confidence === 'number') {
-            score = verification.overall_confidence;
+            
+            console.log('MOSIP Status:', data);
         } else {
-            let total = 0, count = 0;
-            Object.values(fields).forEach(f => {
-                const conf = (f && typeof f === 'object' && f.confidence !== undefined) ? Number(f.confidence) : 1.0;
-                total += conf; count += 1;
-            });
-            score = count ? total / count : 0;
+            throw new Error(data.detail || 'Failed to fetch status');
         }
-        const label = key === 'name' ? 'Name Doc' : key === 'address' ? 'Address Doc' : 'DOB Doc';
-        const html = `
-            <div class="mb-3">
-                <div class="d-flex justify-content-between">
-                    <span class="fw-semibold">${label}</span>
-                    <span class="badge ${score < 0.6 ? 'bg-warning text-dark' : 'bg-success'}">${Math.round(score*100)}%</span>
+        
+    } catch (error) {
+        console.error('Status Check Error:', error);
+        if (statusResult) {
+            statusResult.innerHTML = `
+                <div class="alert alert-danger">
+                    <h4 class="alert-heading">Status Check Failed</h4>
+                    <p>${error.message}</p>
                 </div>
-                <div class="small text-muted">Average confidence across extracted fields.</div>
-            </div>
-        `;
-        confidencePanelEl.insertAdjacentHTML('beforeend', html);
-    });
+            `;
+        }
+    } finally {
+        if (statusLoading) statusLoading.classList.add('d-none');
+    }
 }
 
-// Finalize: download JSON and return to first page
-finalSubmitBtn?.addEventListener('click', () => {
+// Download MOSIP registration report
+function downloadMOSIPReport(result) {
     try {
-        const payload = {
-            user: buildUserFromUI(),
-            documents: reviewResults || {},
-            timestamp: new Date().toISOString()
-        };
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
+        const dataStr = "data:text/json;charset=utf-8," + 
+                       encodeURIComponent(JSON.stringify(result, null, 2));
         const a = document.createElement('a');
         a.setAttribute('href', dataStr);
-        a.setAttribute('download', 'verification_review.json');
+        a.setAttribute('download', `mosip_registration_${result.pre_registration_id || Date.now()}.json`);
         document.body.appendChild(a);
         a.click();
         a.remove();
-    } catch (err) {
-        console.error('Finalize download failed:', err);
-        alert('Failed to generate JSON. See console for details.');
+    } catch (error) {
+        console.error('Download failed:', error);
+        alert('Failed to download report');
     }
-    // Navigate back to dashboard (first page)
-    switchView('view-dashboard');
-});
+}
 
-// No drag & drop after removing the upload zone
+// Batch submit multiple documents to MOSIP
+async function submitBatchToMOSIP() {
+    if (!reviewResults || Object.keys(reviewResults).length === 0) {
+        alert('Please process documents first');
+        return;
+    }
+
+    const formData = new FormData();
+    const files = [];
+    
+    // Add all files
+    if (selectedDocs.name) {
+        formData.append('files', selectedDocs.name);
+        files.push(selectedDocs.name.name);
+    }
+    if (selectedDocs.address) {
+        formData.append('files', selectedDocs.address);
+        files.push(selectedDocs.address.name);
+    }
+    if (selectedDocs.dob) {
+        formData.append('files', selectedDocs.dob);
+        files.push(selectedDocs.dob.name);
+    }
+
+    if (files.length === 0) {
+        alert('No documents to submit');
+        return;
+    }
+
+    // Add verification data
+    const user = buildUserFromUI();
+    const verificationData = files.map(() => ({
+        Name: user.name,
+        Date_of_Birth: user.dob,
+        Gender: user.gender,
+        Address: user.address
+    }));
+    
+    formData.append('verification_data', JSON.stringify(verificationData));
+
+    try {
+        const response = await fetch(ENDPOINTS.mosip.batchSubmit, {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+        
+        if (response.ok) {
+            alert(`Batch submission completed:\nSuccess: ${result.successful}\nFailed: ${result.failed}`);
+            console.log('Batch Submission Result:', result);
+            return result;
+        } else {
+            throw new Error(result.detail || 'Batch submission failed');
+        }
+    } catch (error) {
+        console.error('Batch Submission Error:', error);
+        alert(`Batch submission failed: ${error.message}`);
+        throw error;
+    }
+}
+
+// Initialize MOSIP integration
+function initMOSIPIntegration() {
+    // Test connection on page load
+    window.addEventListener('load', () => {
+        // Test MOSIP connection but don't block UI
+        setTimeout(testMOSIPConnection, 1000);
+    });
+
+    // Add MOSIP submit button to review page
+    if (submitToMosipBtn) {
+        submitToMosipBtn.addEventListener('click', submitToMOSIP);
+    }
+
+    // Add MOSIP status check button
+    if (mosipStatusCheckBtn) {
+        mosipStatusCheckBtn.addEventListener('click', () => {
+            checkMOSIPStatus();
+        });
+    }
+
+    // Add MOSIP test button
+    if (mosipTestBtn) {
+        mosipTestBtn.addEventListener('click', testMOSIPConnection);
+    }
+
+    // Add MOSIP back button
+    if (mosipBackBtn) {
+        mosipBackBtn.addEventListener('click', () => {
+            switchView('view-review');
+        });
+    }
+}
+
+// Add MOSIP button to your review page render function
+function modifyReviewPageForMOSIP() {
+    // Add MOSIP submit button to review page if it doesn't exist
+    if (!submitToMosipBtn && document.getElementById('review-buttons')) {
+        const reviewButtons = document.getElementById('review-buttons');
+        const mosipBtn = document.createElement('button');
+        mosipBtn.id = 'submit-to-mosip';
+        mosipBtn.className = 'btn btn-primary ms-2';
+        mosipBtn.innerHTML = '<i class="fas fa-cloud-upload"></i> Submit to MOSIP';
+        reviewButtons.appendChild(mosipBtn);
+        
+        mosipBtn.addEventListener('click', submitToMOSIP);
+    }
+}
+
+// Update the existing submitData function to include MOSIP option
+const originalSubmitData = window.submitData;
+window.submitData = async function() {
+    await originalSubmitData();
+    // After rendering review, add MOSIP button
+    modifyReviewPageForMOSIP();
+};
+
+// Expose MOSIP functions globally
+window.testMOSIPConnection = testMOSIPConnection;
+window.submitToMOSIP = submitToMOSIP;
+window.checkMOSIPStatus = checkMOSIPStatus;
+window.downloadMOSIPReport = downloadMOSIPReport;
+window.submitBatchToMOSIP = submitBatchToMOSIP;
+
+// Initialize MOSIP integration
+initMOSIPIntegration();
+
+// Add this to your existing initialization
+console.log('MOSIP Integration Module Loaded');
