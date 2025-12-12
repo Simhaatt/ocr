@@ -29,6 +29,26 @@ This project provides an end-to-end flow for document OCR, field mapping, and ve
     - `POST /batch-submit` – process multiple uploaded files; optional `verification_data` JSON array mirrors `manual_data` per file.
 - Frontend buttons: **Submit to MOSIP** hits `/integrate`; **Batch Submit** posts multiple files to `/batch-submit` and reports successes/failures.
 
+## Test Cases & Scenarios
+Use these to validate OCR, mapping, verification, and MOSIP flows.
+
+### Automated
+
+### Manual happy-path checks
+
+**UI labels (upload panel)**
+- Name verification document (e.g., Aadhaar, Voter ID)
+- Address verification document (e.g., Driving License, Passport)
+- Date of birth document (e.g., Birth Certificate, School Leaving Certificate)
+
+- Large file (> size limit) → expect `FILE_TOO_LARGE` style error if enforced by deployment stack.
+
+### Smoke cURL examples
+- Health: `curl http://localhost:8000/api/v1/ocr/health`
+- Map & verify: `curl -X POST http://localhost:8000/api/v1/map-and-verify -H "Content-Type: application/json" -d '{"raw_text":"Name: Alice\nDOB: 2000-01-01","user":{"name":"Alice","dob":"2000-01-01"}}'`
+- MOSIP test: `curl http://localhost:8000/api/v1/mosip/test`
+- MOSIP status: `curl http://localhost:8000/api/v1/mosip/status/PRE1234567`
+
 ## Requirements
 Backend dependencies (see `backend/requirements.txt`):
 - `fastapi`, `uvicorn`
