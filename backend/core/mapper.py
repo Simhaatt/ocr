@@ -225,13 +225,17 @@ class FieldMapper:
                         extracted_data[field] = cleaned_value
                     break
         
-        # Fallback: generic label-value parsing when patterns miss
+        # Fallback: generic label-value parsing when patterns miss (also captures first/middle/last -> name)
         def fallback_label_parse(text: str) -> Dict[str, str]:
             out: Dict[str, str] = {}
+            name_parts_fb: Dict[str, str] = {}
             lines = [ln.strip() for ln in text.splitlines() if ln and len(ln.strip()) >= 3]
             # Canonical label targets
             targets = {
                 'name': ['name', 'full name', 'given name'],
+                'first_name': ['first name', 'firstname'],
+                'middle_name': ['middle name', 'middlename'],
+                'last_name': ['last name', 'lastname', 'surname'],
                 'address': ['address', 'addr'],
                 'phone': ['phone', 'phone number', 'mobile'],
                 'email': ['email', 'email id', 'e-mail'],
@@ -243,16 +247,26 @@ class FieldMapper:
             for ln in lines:
                 for canon, labs in targets.items():
                     for lab in labs:
-                        # direct pattern with optional separator
                         m = re.match(rf"^\s*{re.escape(lab)}\s*[:\-]?\s*(.+)$", ln, flags=re.IGNORECASE)
                         if m:
                             val = m.group(1).strip()
                             if val:
                                 cleaned = self.clean_field(canon if canon in {'phone','email','pincode'} else canon, val)
-                                out[canon] = cleaned
+                                if canon in {'first_name','middle_name','last_name'}:
+                                    name_parts_fb[canon] = cleaned
+                                else:
+                                    out[canon] = cleaned
                                 break
                     if canon in out:
                         continue
+            # If parts found, combine into name
+            if name_parts_fb and 'name' not in out:
+                first = name_parts_fb.get('first_name', '')
+                middle = name_parts_fb.get('middle_name', '')
+                last = name_parts_fb.get('last_name', '')
+                full_name = ' '.join([first, middle, last]).strip()
+                if full_name:
+                    out['name'] = ' '.join(full_name.split())
             return out
 
         # Merge fallback results (do not overwrite existing)

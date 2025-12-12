@@ -52,6 +52,13 @@ async def extract_fields(request: ExtractionRequest):
 async def map_and_verify(req: MapAndVerifyRequest):
     try:
         mapped = field_mapper.extract_fields(req.raw_text, document_type=req.document_type)
+        requested = (req.document_type or "").lower()
+
+        # For handwritten docs, also surface the raw text so the UI can show everything
+        if requested == "handwritten":
+            mapped = dict(mapped)
+            mapped["raw_text"] = req.raw_text
+
         missing = field_mapper.get_missing_fields(mapped)
         # Determine relevant field(s) for verification based on document type
         doc_map = {
@@ -64,7 +71,6 @@ async def map_and_verify(req: MapAndVerifyRequest):
             # For handwritten, show all extracted fields
             "handwritten": None,
         }
-        requested = (req.document_type or "").lower()
         keys = doc_map.get(requested)
         if keys is None:
             # Do not restrict; use all extracted fields
@@ -79,8 +85,10 @@ async def map_and_verify(req: MapAndVerifyRequest):
             ocr_subset = {k: v for k, v in mapped.items() if k in keys}
             user_subset = {k: v for k, v in req.user.items() if k in keys}
         else:
-            ocr_subset = mapped
-            user_subset = req.user
+            # Handwritten/all-fields: keep mapped as-is for display, but verify only known canonical keys
+            verify_keys = {"name", "dob", "phone", "address", "gender"}
+            ocr_subset = {k: v for k, v in mapped.items() if k in verify_keys}
+            user_subset = {k: v for k, v in req.user.items() if k in verify_keys}
         verification = verify(ocr_subset, user_subset)
 
         # Age consistency note (auxiliary; does not affect scoring)

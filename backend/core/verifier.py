@@ -67,6 +67,21 @@ COMMON_DATE_FORMATS = [
     "%b %d, %Y", "%B %d, %Y"
 ]
 
+MONTH_MAP = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}
+
 # -----------------------------
 # Normalization functions
 # -----------------------------
@@ -297,20 +312,59 @@ def phone_score(a: str, b: str) -> float:
 
 def dob_score(a: str, b: str) -> float:
     """Equality after robust normalization; allow digit-only fallback and 2-digit years."""
+    def parse_loose(x: str):
+        if not x:
+            return {"ymd": "", "md": ""}
+        raw = str(x).lower()
+        raw = re.sub(r"dob[^0-9a-z]+", " ", raw)
+        for ch in [".", "/", "-", ","]:
+            raw = raw.replace(ch, " ")
+        toks = [t for t in raw.split() if t]
+        nums = []
+        mon = None
+        for t in toks:
+            if t.isdigit():
+                nums.append(int(t))
+            else:
+                mon = MONTH_MAP.get(t[:3]) or MONTH_MAP.get(t)
+        day = month = year = None
+        if len(nums) == 3:
+            day, month, year = nums[0], nums[1], nums[2]
+        elif len(nums) == 2:
+            day, month = nums[0], nums[1]
+        elif len(nums) == 1 and mon:
+            day = nums[0]; month = mon
+        if mon and month is None:
+            month = mon
+        if year is not None and year < 100:
+            year = 2000 + year
+        ymd = ""
+        md = ""
+        if day and month:
+            md = f"{str(month).zfill(2)}-{str(day).zfill(2)}"
+        if day and month and year:
+            ymd = f"{year:04d}-{str(month).zfill(2)}-{str(day).zfill(2)}"
+        return {"ymd": ymd, "md": md}
+
     da = normalize_full(a, "date")
     db = normalize_full(b, "date")
 
-    # If ISO parse succeeds for both, compare directly
-    if da and db:
-        if da == db:
-            return 1.0
+    loose_a = parse_loose(a or da)
+    loose_b = parse_loose(b or db)
 
+    # Exact ISO match
+    if loose_a["ymd"] and loose_b["ymd"] and loose_a["ymd"] == loose_b["ymd"]:
+        return 1.0
+
+    # Day/Month match (year missing or not parsed) - treat as match
+    if loose_a["md"] and loose_b["md"] and loose_a["md"] == loose_b["md"]:
+        return 1.0
+
+    # Fallback to digit-only equality
     def digits_only(x: str) -> str:
         if not x:
             return ""
-        # strip labels like "dob:" and keep digits only
         d = "".join(ch for ch in x if ch.isdigit())
-        # handle 2-digit year by preferring 20xx
         if len(d) == 6:  # ddmmyy
             d = f"{d[:4]}20{d[4:]}"
         if len(d) == 7:  # dddmmyy -> pad day
