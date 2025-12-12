@@ -211,12 +211,11 @@ def address_score(a: str, b: str) -> float:
     bn = normalize_full(b, "generic")
     if not an or not bn:
         return 0.0
-    s_raw = max(
-        fuzz.partial_ratio(an, bn),
-        fuzz.token_sort_ratio(an, bn),
-        fuzz.token_set_ratio(an, bn),
-        getattr(fuzz, "WRatio", lambda x, y: 0)(an, bn),
-    ) / 100.0
+    s_partial = fuzz.partial_ratio(an, bn) / 100.0
+    s_token = fuzz.token_sort_ratio(an, bn) / 100.0
+    s_set = fuzz.token_set_ratio(an, bn) / 100.0
+    s_w = getattr(fuzz, "WRatio", lambda x, y: 0)(an, bn) / 100.0
+    s_raw = max(s_token, s_set, s_w, s_partial)
 
     # Bonus for matching numeric tokens like house/flat numbers
     nums_a = set(re.findall(r"\b\d+\b", an))
@@ -235,8 +234,17 @@ def address_score(a: str, b: str) -> float:
     jacc = inter / union
     bonus_jacc = min(0.05, 0.05 * jacc)
 
+    # Penalize partial-only matches: require coverage of smaller side
+    # Coverage based on the larger address to penalize missing key tokens
+    coverage = inter / max(1, max(len(toks_a), len(toks_b)))
+    # If the fuzzy score is already very high, treat it as near-full match (e.g., minor spacing/punctuation)
+    if s_raw >= 0.9:
+        coverage = 1.0
+    coverage = max(0.5, coverage)  # avoid over-penalizing tiny differences like extra spaces
+    s_raw_adjusted = s_raw * coverage
+
     total_bonus = min(0.08, bonus_num + bonus_jacc)
-    return min(1.0, s_raw + total_bonus)
+    return min(1.0, s_raw_adjusted + total_bonus)
 
 def phone_score(a: str, b: str) -> float:
     """Compare phones robustly with country codes/trunk prefixes.
@@ -288,11 +296,32 @@ def phone_score(a: str, b: str) -> float:
     return score
 
 def dob_score(a: str, b: str) -> float:
-    """Exact equality after normalization to ISO date => 1.0 else 0.0."""
+    """Equality after robust normalization; allow digit-only fallback and 2-digit years."""
     da = normalize_full(a, "date")
     db = normalize_full(b, "date")
+
+    # If ISO parse succeeds for both, compare directly
     if da and db:
-        return 1.0 if da == db else 0.0
+        if da == db:
+            return 1.0
+
+    def digits_only(x: str) -> str:
+        if not x:
+            return ""
+        # strip labels like "dob:" and keep digits only
+        d = "".join(ch for ch in x if ch.isdigit())
+        # handle 2-digit year by preferring 20xx
+        if len(d) == 6:  # ddmmyy
+            d = f"{d[:4]}20{d[4:]}"
+        if len(d) == 7:  # dddmmyy -> pad day
+            d = f"0{d}"
+        return d
+
+    da_d = digits_only(a or da)
+    db_d = digits_only(b or db)
+    if da_d and db_d and da_d == db_d:
+        return 1.0
+
     return 0.0
 
 def gender_score(a: str, b: str) -> float:

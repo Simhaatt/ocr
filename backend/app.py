@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routes.extraction import router as extraction_router
 from .routes.mapping import router as mapping_router
 from .routes.verification import router as verification_router
+from .routes.mosip import router as mosip_router
 
 app = FastAPI(title="MOSIP OCR Field Extraction API", version="1.0.0")
 
@@ -18,6 +19,7 @@ app.add_middleware(
 app.include_router(extraction_router, prefix="/api/v1")
 app.include_router(mapping_router, prefix="/api/v1")
 app.include_router(verification_router, prefix="/api/v1")
+app.include_router(mosip_router, prefix="/api/v1")
 # API overview
 
 @app.get("/")

@@ -6,7 +6,15 @@ const ENDPOINTS = {
     // Mapping + Verification using extracted raw text
     map: `${BASE_URL}/api/v1/map-and-verify`,
     // Optional submit endpoint (may not exist; fallback provided)
-    submit: `${BASE_URL}/api/v1/submit`
+    submit: `${BASE_URL}/api/v1/submit`,
+    // MOSIP Integration endpoints
+    mosip: {
+        integrate: `${BASE_URL}/api/v1/mosip/integrate`,
+        verifyAndSubmit: `${BASE_URL}/api/v1/mosip/verify-and-submit`,
+        status: `${BASE_URL}/api/v1/mosip/status`,
+        test: `${BASE_URL}/api/v1/mosip/test`,
+        batchSubmit: `${BASE_URL}/api/v1/mosip/batch-submit`
+    }
 };
 
 // --- DOM ELEMENTS ---
@@ -16,7 +24,9 @@ const views = {
     upload: document.getElementById('view-upload'),
     verify: document.getElementById('view-verify'),
     success: document.getElementById('view-success'),
-    review: document.getElementById('view-review')
+    review: document.getElementById('view-review'),
+    mosip: document.getElementById('view-mosip'),
+    mosipStatus: document.getElementById('view-mosip-status')
 };
 
 // Specific verification document inputs (any of these triggers OCR)
@@ -55,6 +65,18 @@ const extractedTextEl = document.getElementById('extracted-text');
 const extractedTextInputEl = document.getElementById('extracted-text-input');
 const editExtractedBtn = document.getElementById('edit-extracted');
 const saveExtractedBtn = document.getElementById('save-extracted');
+// MOSIP elements
+const mosipConnectionStatusEl = document.getElementById('mosip-connection-status');
+const mosipFooterStatusEl = document.getElementById('mosip-footer-status');
+const mosipStatusInputEl = document.getElementById('mosip-status-input');
+const mosipStatusCheckBtn = document.getElementById('mosip-status-check');
+const mosipTestBtn = document.getElementById('mosip-test-btn');
+const submitToMosipBtn = document.getElementById('submit-to-mosip');
+const mosipLoadingEl = document.getElementById('mosip-loading');
+const mosipResultEl = document.getElementById('mosip-result');
+const mosipStatusLoadingEl = document.getElementById('mosip-status-loading');
+const mosipStatusResultEl = document.getElementById('mosip-status-result');
+const recentRegistrationsEl = document.getElementById('recent-registrations');
 // Edit/Save controls
 const editBtn = document.getElementById('edit-applicant');
 const saveBtn = document.getElementById('save-applicant');
@@ -69,9 +91,20 @@ let originalExtractedText = '';
 let isEditingExtracted = false;
 
 function switchView(viewName) {
-    Object.values(views).forEach(el => el.classList.add('d-none'));
+    // Hide every view first
+    Object.values(views).forEach(el => el && el.classList.add('d-none'));
+
+    // Accept either the full element id (e.g., "view-mosip-status") or the short key (e.g., "mosipStatus")
+    const direct = document.getElementById(viewName);
+    if (direct) {
+        direct.classList.remove('d-none');
+        return;
+    }
+
     const key = viewName.replace('view-', '');
-    views[key].classList.remove('d-none');
+    if (views[key]) {
+        views[key].classList.remove('d-none');
+    }
 }
 // Expose for inline onclick handlers
 window.switchView = switchView;
@@ -376,15 +409,33 @@ function renderReview(results) {
             const verification = item.verification || {};
             // Build display text from mapped fields with per-doc filtering
             const lines = [];
-            const filterKeys = key === 'name' ? ['name'] : key === 'address' ? ['address'] : key === 'dob' ? ['dob'] : null;
-            Object.entries(fields).forEach(([k, v]) => {
-                if (filterKeys && !filterKeys.includes(k)) return;
-                const val = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-                if (val !== undefined && val !== null && String(val).trim() !== '') {
-                    lines.push(`${k}: ${val}`);
+            const filterKeys = key === 'name'
+                ? ['name', 'full_name']
+                : key === 'address'
+                ? ['address', 'addr']
+                : key === 'dob'
+                ? ['dob', 'date_of_birth', 'date-of-birth', 'birth_date', 'birthdate', 'date']
+                : null;
+
+            if (filterKeys) {
+                // Pick the first available key in preferred order to avoid duplicate lines
+                const firstKey = filterKeys.find(k => fields && Object.prototype.hasOwnProperty.call(fields, k));
+                if (firstKey) {
+                    const v = fields[firstKey];
+                    const val = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+                    if (val !== undefined && val !== null && String(val).trim() !== '') {
+                        lines.push(`${firstKey}: ${val}`);
+                    }
                 }
-            });
-            // Only show mapped fields; avoid falling back to raw OCR text
+            } else {
+                Object.entries(fields).forEach(([k, v]) => {
+                    const val = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+                    if (val !== undefined && val !== null && String(val).trim() !== '') {
+                        lines.push(`${k}: ${val}`);
+                    }
+                });
+            }
+            // Prefer mapped fields; if empty, show placeholder until user edits/saves
             const displayText = lines.length ? lines.join('\n') : '(no text)';
 
             // Determine verification score if provided; fallback to avg confidence
@@ -506,13 +557,54 @@ saveExtractedBtn?.addEventListener('click', async () => {
         });
         if (!mapRes.ok) throw new Error(`Update failed (${mapRes.status})`);
         const mapJson = await mapRes.json();
-        const fields = mapJson.mapped || mapJson.mapped_fields || mapJson.data || mapJson;
-        const verification = mapJson.verification || null;
+        let fields = mapJson.mapped || mapJson.mapped_fields || mapJson.data || mapJson;
+        let verification = mapJson.verification || null;
+
+        // Always normalize DOB edits against form DOB and ensure only a single DOB field
+        if (currentDocKey === 'dob') {
+            const userDob = (buildUserFromUI().dob || '').trim();
+
+            const parseDob = (s) => {
+                if (!s) return '';
+                const stripped = s.toLowerCase().replace(/dob[^0-9]+/i, ' ').trim();
+                const parts = (stripped.match(/\d+/g) || []).map(Number);
+                if (parts.length < 3) return '';
+                let y, m, d;
+                // Try year first
+                if (String(parts[0]).length === 4) {
+                    [y, m, d] = parts;
+                } else if (String(parts[2]).length === 4) {
+                    [m, d, y] = parts;
+                } else if (String(parts[1]).length === 4) {
+                    [m, y, d] = parts;
+                } else {
+                    // Assume last is year (2-digit allowed)
+                    [m, d, y] = parts;
+                    if (y < 100) y = 2000 + y;
+                }
+                // Swap if month/day look inverted
+                if (m > 12 && d <= 12) {
+                    [m, d] = [d, m];
+                }
+                if (m < 1 || m > 12 || d < 1 || d > 31) return '';
+                const pad = (n) => String(n).padStart(2, '0');
+                return `${y}-${pad(m)}-${pad(d)}`;
+            };
+
+            const normUser = parseDob(userDob);
+            const normEdit = parseDob(newText);
+            let dobConf = 0.6;
+            if (normUser && normEdit) dobConf = normUser === normEdit ? 1.0 : 0.55;
+            fields = { dob: { value: newText, confidence: dobConf } };
+            verification = { score: dobConf, overall_confidence: dobConf };
+        }
 
         // Persist updated results for finalize and confidence panel
         reviewResults = reviewResults || {};
+        const prev = reviewResults[currentDocKey] || {};
         reviewResults[currentDocKey] = {
-            ...(reviewResults[currentDocKey] || {}),
+            fileName: prev.fileName,
+            url: prev.url,
             rawText: newText,
             fields,
             verification
@@ -553,5 +645,265 @@ finalSubmitBtn?.addEventListener('click', () => {
     // Navigate back to dashboard (first page)
     switchView('view-dashboard');
 });
+
+// --- MOSIP INTEGRATION ---
+function setMosipStatus(text, badgeClass = 'bg-light text-dark') {
+    if (mosipConnectionStatusEl) {
+        mosipConnectionStatusEl.innerHTML = text;
+    }
+    if (mosipFooterStatusEl) {
+        mosipFooterStatusEl.className = `badge ${badgeClass}`;
+        mosipFooterStatusEl.innerHTML = text;
+    }
+}
+
+async function testMOSIPConnection() {
+    try {
+        setMosipStatus('<i class="fas fa-circle-notch fa-spin me-1"></i> Testing MOSIP...', 'bg-light text-dark');
+        const resp = await fetch(ENDPOINTS.mosip.test);
+        const data = await resp.json();
+        if (resp.ok) {
+            setMosipStatus('<i class="fas fa-check-circle me-1"></i> Connected to MOSIP', 'bg-success text-white');
+            return true;
+        }
+        throw new Error(data.detail || 'Connection failed');
+    } catch (err) {
+        console.error('MOSIP Connection Error:', err);
+        setMosipStatus(`<i class="fas fa-times-circle me-1"></i> MOSIP offline: ${err.message}`, 'bg-danger text-white');
+        return false;
+    }
+}
+
+async function submitToMOSIP() {
+    if (!reviewResults) {
+        alert('Please process documents first before submitting to MOSIP');
+        return;
+    }
+
+    const user = buildUserFromUI();
+    // Move to MOSIP view immediately so user sees progress and any errors
+    switchView('view-mosip');
+    if (mosipLoadingEl) mosipLoadingEl.classList.remove('d-none');
+    if (mosipResultEl) mosipResultEl.innerHTML = '<div class="alert alert-info">Submitting to MOSIP...</div>';
+
+    try {
+        const connected = await testMOSIPConnection();
+        if (!connected) throw new Error('Cannot connect to MOSIP sandbox');
+
+        const documents = [];
+        if (selectedDocs.name && reviewResults.name) {
+            documents.push({ file: selectedDocs.name, data: reviewResults.name, type: 'POI' });
+        }
+        if (selectedDocs.address && reviewResults.address) {
+            documents.push({ file: selectedDocs.address, data: reviewResults.address, type: 'POA' });
+        }
+        if (selectedDocs.dob && reviewResults.dob) {
+            documents.push({ file: selectedDocs.dob, data: reviewResults.dob, type: 'DOB' });
+        }
+        if (documents.length === 0) throw new Error('No documents to submit to MOSIP');
+
+        const primaryDoc = documents[0];
+        const formData = new FormData();
+        formData.append('file', primaryDoc.file);
+
+        // Only send manual fields tied to an uploaded document; skip missing docs to avoid false verification failures
+        const manualData = {};
+        if (selectedDocs.name && user.name) manualData.Name = user.name;
+        if (selectedDocs.dob && user.dob) manualData.Date_of_Birth = user.dob;
+        if (selectedDocs.name && user.gender) manualData.Gender = user.gender; // gender usually with identity doc
+        if (selectedDocs.address && user.address) manualData.Address = user.address;
+        if (selectedDocs.name && user.phone) manualData.Phone = user.phone;
+        if (selectedDocs.name && user.email) manualData.Email = user.email;
+        if (Object.keys(manualData).length) {
+            formData.append('manual_data', JSON.stringify(manualData));
+        }
+
+        const resp = await fetch(ENDPOINTS.mosip.integrate, { method: 'POST', body: formData });
+        const result = await resp.json();
+        if (!resp.ok || result.status !== 'success') {
+            throw new Error(result.message || result.detail || 'MOSIP registration failed');
+        }
+
+        const preRegId = result.pre_registration_id;
+        switchView('view-mosip');
+        if (mosipResultEl) {
+            mosipResultEl.innerHTML = `
+                <div class="alert alert-success">
+                    <h4 class="alert-heading">✓ Registration Successful!</h4>
+                    <p>Your pre-registration has been submitted to MOSIP.</p>
+                    <hr>
+                    <p class="mb-0">
+                        <strong>Pre-registration ID:</strong> ${preRegId}<br>
+                        <strong>Next Steps:</strong> ${result.message || 'Awaiting verification'}
+                    </p>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <button class="btn btn-outline-primary" onclick="checkMOSIPStatus('${preRegId}')">Check Status</button>
+                    <button class="btn btn-outline-secondary" onclick='downloadMOSIPReport(${JSON.stringify(result)})'>Download Registration Report</button>
+                </div>
+            `;
+        }
+
+        localStorage.setItem('last_mosip_pre_reg_id', preRegId);
+        localStorage.setItem('last_mosip_response', JSON.stringify(result));
+    } catch (err) {
+        console.error('MOSIP Submission Error:', err);
+        if (mosipResultEl) {
+            mosipResultEl.innerHTML = `
+                <div class="alert alert-danger">
+                    <h4 class="alert-heading">✗ Registration Failed</h4>
+                    <p>${err.message}</p>
+                    <hr>
+                    <p class="mb-0">Please check your documents and try again.</p>
+                </div>
+            `;
+        }
+    } finally {
+        if (mosipLoadingEl) mosipLoadingEl.classList.add('d-none');
+    }
+}
+
+async function checkMOSIPStatus(preRegId) {
+    const id = preRegId || mosipStatusInputEl?.value || localStorage.getItem('last_mosip_pre_reg_id');
+    if (!id) {
+        alert('Please enter a Pre-registration ID');
+        return;
+    }
+    if (mosipStatusLoadingEl) mosipStatusLoadingEl.classList.remove('d-none');
+    if (mosipStatusResultEl) mosipStatusResultEl.innerHTML = '';
+    try {
+        const resp = await fetch(`${ENDPOINTS.mosip.status}/${id}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'Failed to fetch status');
+
+        let statusClass = 'secondary';
+        let statusIcon = '⏳';
+        const status = (data.status || '').toLowerCase();
+        if (status.includes('approved') || status.includes('success')) { statusClass = 'success'; statusIcon = '✓'; }
+        else if (status.includes('rejected') || status.includes('failed')) { statusClass = 'danger'; statusIcon = '✗'; }
+        else if (status.includes('pending') || status.includes('processing')) { statusClass = 'warning'; statusIcon = '🔄'; }
+
+        if (mosipStatusResultEl) {
+            mosipStatusResultEl.innerHTML = `
+                <div class="alert alert-info">
+                    <h4 class="alert-heading">Registration Status</h4>
+                    <p><strong>Pre-registration ID:</strong> ${id}</p>
+                    <p><strong>Status:</strong> <span class="badge bg-${statusClass}">${statusIcon} ${data.status || 'Unknown'}</span></p>
+                    ${data.details ? `<p><strong>Details:</strong> ${JSON.stringify(data.details)}</p>` : ''}
+                </div>`;
+        }
+        setMosipStatus(`<i class="fas fa-check-circle me-1"></i> MOSIP: ${data.status || 'OK'}`, `bg-${statusClass} ${statusClass === 'warning' ? 'text-dark' : 'text-white'}`);
+        localStorage.setItem('last_mosip_pre_reg_id', id);
+        if (recentRegistrationsEl) {
+            const item = document.createElement('div');
+            item.className = 'list-group-item';
+            item.textContent = `${id} — ${data.status || 'Unknown'}`;
+            recentRegistrationsEl.prepend(item);
+        }
+    } catch (err) {
+        console.error('Status Check Error:', err);
+        if (mosipStatusResultEl) {
+            mosipStatusResultEl.innerHTML = `
+                <div class="alert alert-danger">
+                    <h4 class="alert-heading">Status Check Failed</h4>
+                    <p>${err.message}</p>
+                </div>`;
+        }
+        setMosipStatus(`<i class="fas fa-times-circle me-1"></i> Status check failed`, 'bg-danger text-white');
+    } finally {
+        if (mosipStatusLoadingEl) mosipStatusLoadingEl.classList.add('d-none');
+    }
+}
+
+function downloadMOSIPReport(result) {
+    try {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result, null, 2));
+        const a = document.createElement('a');
+        a.setAttribute('href', dataStr);
+        a.setAttribute('download', `mosip_registration_${result.pre_registration_id || Date.now()}.json`);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    } catch (err) {
+        console.error('Download failed:', err);
+        alert('Failed to download report');
+    }
+}
+
+async function submitBatchToMOSIP() {
+    if (!reviewResults || Object.keys(reviewResults).length === 0) {
+        alert('Please process documents first');
+        return;
+    }
+    const formData = new FormData();
+    const files = [];
+    if (selectedDocs.name) { formData.append('files', selectedDocs.name); files.push(selectedDocs.name.name); }
+    if (selectedDocs.address) { formData.append('files', selectedDocs.address); files.push(selectedDocs.address.name); }
+    if (selectedDocs.dob) { formData.append('files', selectedDocs.dob); files.push(selectedDocs.dob.name); }
+    if (!files.length) { alert('No documents to submit'); return; }
+
+    const user = buildUserFromUI();
+    const verificationData = files.map(() => ({
+        Name: user.name,
+        Date_of_Birth: user.dob,
+        Gender: user.gender,
+        Address: user.address
+    }));
+    formData.append('verification_data', JSON.stringify(verificationData));
+
+    try {
+        const resp = await fetch(ENDPOINTS.mosip.batchSubmit, { method: 'POST', body: formData });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.detail || 'Batch submission failed');
+        alert(`Batch submission completed:\nSuccess: ${result.successful}\nFailed: ${result.failed}`);
+        return result;
+    } catch (err) {
+        console.error('Batch Submission Error:', err);
+        alert(`Batch submission failed: ${err.message}`);
+        throw err;
+    }
+}
+
+function checkLastRegistration() {
+    const lastId = localStorage.getItem('last_mosip_pre_reg_id');
+    if (lastId) {
+        checkMOSIPStatus(lastId);
+    } else {
+        alert('No previous registration found');
+    }
+}
+
+function checkPreviousRegistration() {
+    const raw = localStorage.getItem('last_mosip_response');
+    if (raw && mosipResultEl) {
+        const result = JSON.parse(raw);
+        mosipResultEl.innerHTML = `
+            <div class="alert alert-secondary">
+                <h5 class="alert-heading">Last submission</h5>
+                <p><strong>Pre-registration ID:</strong> ${result.pre_registration_id || 'N/A'}</p>
+                <p><strong>Status:</strong> ${result.status || 'N/A'}</p>
+            </div>`;
+    } else {
+        alert('No previous registration found');
+    }
+}
+
+function initMOSIPIntegration() {
+    window.addEventListener('load', () => setTimeout(testMOSIPConnection, 500));
+    submitToMosipBtn?.addEventListener('click', submitToMOSIP);
+    mosipStatusCheckBtn?.addEventListener('click', () => checkMOSIPStatus());
+    mosipTestBtn?.addEventListener('click', testMOSIPConnection);
+}
+
+// Expose for inline onclick handlers
+window.testMOSIPConnection = testMOSIPConnection;
+window.submitToMOSIP = submitToMOSIP;
+window.checkMOSIPStatus = checkMOSIPStatus;
+window.downloadMOSIPReport = downloadMOSIPReport;
+window.submitBatchToMOSIP = submitBatchToMOSIP;
+window.checkLastRegistration = checkLastRegistration;
+window.checkPreviousRegistration = checkPreviousRegistration;
+
+initMOSIPIntegration();
 
 // No drag & drop after removing the upload zone

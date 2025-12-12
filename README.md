@@ -20,6 +20,15 @@ This project provides an end-to-end flow for document OCR, field mapping, and ve
     - `index.html`, `styles.css`, `app.js`
 - `tests/` Pytest suite for mapping/verification logic
 
+## MOSIP Integration
+- Stub client (`backend/core/mosip_client.py`) simulates MOSIP pre-registration, upload, and status for offline testing.
+- Endpoints (all under `/api/v1/mosip`):
+    - `POST /integrate` – end-to-end: extract → map/verify (if `manual_data` provided) → create pre-reg ID → upload document. Default verification threshold is `0.8`. Verification uses only overlapping fields between extracted mapped data and manual data; if no overlap, verification is skipped instead of failing.
+    - `GET /test` – quick connectivity stub (returns a canned response).
+    - `GET /status/{pre_reg_id}` – returns stubbed status (`pending`).
+    - `POST /batch-submit` – process multiple uploaded files; optional `verification_data` JSON array mirrors `manual_data` per file.
+- Frontend buttons: **Submit to MOSIP** hits `/integrate`; **Batch Submit** posts multiple files to `/batch-submit` and reports successes/failures.
+
 ## Requirements
 Backend dependencies (see `backend/requirements.txt`):
 - `fastapi`, `uvicorn`
@@ -56,6 +65,7 @@ python -m http.server 5500
 
 - Open the app at `http://127.0.0.1:5500/index.html`
 - Backend docs: `http://127.0.0.1:8000/docs`
+- MOSIP quick test: `GET http://127.0.0.1:8000/api/v1/mosip/test`
 
 ## API Overview
 Base prefix: `/api/v1`
@@ -67,6 +77,11 @@ Base prefix: `/api/v1`
     - `POST /api/v1/map-and-verify` → maps and verifies against `user`, filtered by `document_type`
 - Direct Verification
     - `POST /api/v1/verification/verify` → verifies `ocr` vs `user` payloads
+- MOSIP
+    - `POST /api/v1/mosip/integrate` → single-file OCR → map/verify (optional) → pre-reg stub → upload stub
+    - `POST /api/v1/mosip/batch-submit` → multi-file submit with optional per-file verification data
+    - `GET /api/v1/mosip/test` → connectivity stub
+    - `GET /api/v1/mosip/status/{pre_reg_id}` → status stub
 
 ## Document-Type Behavior
 - `aadhar` or `voter`: extract and show only `name`; confidence equals name match vs form
