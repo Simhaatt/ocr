@@ -64,7 +64,9 @@ STOPWORDS = {
 COMMON_DATE_FORMATS = [
     "%d-%m-%Y", "%d-%m-%y", "%d/%m/%Y", "%d/%m/%y",
     "%Y-%m-%d", "%Y/%m/%d", "%d %b %Y", "%d %B %Y",
-    "%b %d, %Y", "%B %d, %Y"
+    "%b %d, %Y", "%B %d, %Y",
+    "%d-%b-%Y", "%d-%B-%Y", "%d-%b-%y", "%d-%B-%y",
+    "%d %b, %Y", "%d %B, %Y"
 ]
 
 MONTH_MAP = {
@@ -193,6 +195,17 @@ def name_score(a: str, b: str) -> float:
     s2 = fuzz.token_sort_ratio(a_n, b_n)
     s3 = fuzz.partial_ratio(a_n, b_n)
     best = max(s1, s2, s3) / 100.0
+
+    # Heuristic: penalize extremely short vs long inputs (e.g., "ke" vs "kevin brown")
+    al = len(a_n.replace(" ", ""))
+    bl = len(b_n.replace(" ", ""))
+    short_len = min(al, bl)
+    long_len = max(al, bl)
+    if short_len <= 2 and long_len >= 4:
+        best = min(best, 0.35)
+    if long_len > 0 and (long_len / max(1, short_len)) >= 2.5:
+        best = min(best, best * 0.6)
+
     toks_a = a_n.split()
     toks_b = b_n.split()
     # Boost for token permutations (order variance)
@@ -329,9 +342,22 @@ def dob_score(a: str, b: str) -> float:
                 mon = MONTH_MAP.get(t[:3]) or MONTH_MAP.get(t)
         day = month = year = None
         if len(nums) == 3:
-            day, month, year = nums[0], nums[1], nums[2]
+            # Heuristic: prefer year-first when the first number is clearly a year
+            if nums[0] > 1900:
+                year, month, day = nums[0], nums[1], nums[2]
+            else:
+                day, month, year = nums[0], nums[1], nums[2]
+                if mon and month <= 12:
+                    # If the second number looks like month but mon is present, prefer mon and treat middle as year when plausible
+                    if nums[1] > 31 and nums[2] <= 31:
+                        day, month, year = nums[0], mon, nums[1]
         elif len(nums) == 2:
-            day, month = nums[0], nums[1]
+            # If we have two numbers and a month word, assume day + year
+            if mon:
+                day, year = nums[0], nums[1]
+                month = mon
+            else:
+                day, month = nums[0], nums[1]
         elif len(nums) == 1 and mon:
             day = nums[0]; month = mon
         if mon and month is None:

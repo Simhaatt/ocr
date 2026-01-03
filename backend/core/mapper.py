@@ -67,7 +67,9 @@ class FieldMapper:
                 r'\bएड्रेस\s*लाइन\s*१[:\s]*([^\n]{5,})',
                 # English
                 r'\b(?:ADDRESS|ADDREAS)\s*LINE?\s*1[:\s]*([^\n]{5,})',
-                r'\bAddress Line 1[:\s]*([^\n]{5,})'
+                r'\bAddress Line 1[:\s]*([^\n]{5,})',
+                # Generic address label (fallback)
+                r'\bAddress\s*[:\-]?\s*([^\n]{5,})'
             ],
             'address_line2': [
                 # Hindi
@@ -99,7 +101,10 @@ class FieldMapper:
                 r'\bपिन\s*कोड[:\s]*(\d{4,8})',
                 # English
                 r'\b(?:PIN|Prin)\s*CODE[:\s]*(\d{4,8})',
-                r'\bPincode[:\s]*(\d{4,8})'
+                r'\bPincode[:\s]*(\d{4,8})',
+                r'\bZIP\s*CODE[:\s]*(\d{4,8})',
+                r'\bZipcode[:\s]*(\d{4,8})',
+                r'\bZip[:\s]*(\d{4,8})'
             ],
             'phone': [
                 # Hindi
@@ -237,6 +242,9 @@ class FieldMapper:
                 'middle_name': ['middle name', 'middlename'],
                 'last_name': ['last name', 'lastname', 'surname'],
                 'address': ['address', 'addr'],
+                'city': ['city'],
+                'state': ['state'],
+                'pincode': ['pincode', 'pin code', 'pin', 'zipcode', 'zip code', 'zip'],
                 'phone': ['phone', 'phone number', 'mobile'],
                 'email': ['email', 'email id', 'e-mail'],
                 'gender': ['gender', 'sex'],
@@ -293,7 +301,19 @@ class FieldMapper:
             extracted_data['address'] = extracted_data.pop('address_line1')
         elif 'address_line2' in extracted_data:
             extracted_data['address'] = extracted_data.pop('address_line2')
-        
+
+        # If no explicit address but city/state/zip are present, synthesize a minimal address
+        if 'address' not in extracted_data:
+            parts = []
+            if 'city' in extracted_data:
+                parts.append(extracted_data['city'])
+            if 'state' in extracted_data:
+                parts.append(extracted_data['state'])
+            if 'pincode' in extracted_data:
+                parts.append(extracted_data['pincode'])
+            if parts:
+                extracted_data['address'] = ' '.join(parts)
+
         return extracted_data
     
     def clean_field(self, field_name: str, raw_value: str) -> str:

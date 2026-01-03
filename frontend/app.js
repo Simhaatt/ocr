@@ -217,6 +217,7 @@ handwrittenFileEl?.addEventListener('change', (e) => {
     // We won't process this unless present; treat as supplemental (no mapping changes here)
     if (file) {
         console.log('Optional handwritten doc selected:', file.name);
+        selectedDocs.handwritten = file;
     }
 });
 
@@ -307,7 +308,7 @@ async function submitData() {
         const ocrJson = await ocrRes.json();
         const rawText = ocrJson.extracted_text || ocrJson.raw_text || ocrJson.data?.raw_text || '';
         // Map key to backend document_type for focused verification
-        const docTypeMap = { name: 'aadhar', address: 'dl', dob: 'birth', handwritten: null };
+        const docTypeMap = { name: 'aadhar', address: 'dl', dob: 'birth', handwritten: 'handwritten' };
         const document_type = docTypeMap[key] || null;
 
         const mapRes = await fetch(ENDPOINTS.map, {
@@ -412,28 +413,114 @@ function renderReview(results) {
             const filterKeys = key === 'name'
                 ? ['name', 'full_name']
                 : key === 'address'
-                ? ['address', 'addr']
+                ? ['address', 'addr', 'city', 'state', 'pincode']
                 : key === 'dob'
                 ? ['dob', 'date_of_birth', 'date-of-birth', 'birth_date', 'birthdate', 'date']
                 : null;
 
             if (filterKeys) {
-                // Pick the first available key in preferred order to avoid duplicate lines
-                const firstKey = filterKeys.find(k => fields && Object.prototype.hasOwnProperty.call(fields, k));
-                if (firstKey) {
-                    const v = fields[firstKey];
+                // Include all matching keys in order to show city/state/pincode for address docs
+                const collected = {};
+                filterKeys.forEach(fk => {
+                    if (!fields || !Object.prototype.hasOwnProperty.call(fields, fk)) return;
+                    const v = fields[fk];
                     const val = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
                     if (val !== undefined && val !== null && String(val).trim() !== '') {
-                        lines.push(`${firstKey}: ${val}`);
-                    }
-                }
-            } else {
-                Object.entries(fields).forEach(([k, v]) => {
-                    const val = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-                    if (val !== undefined && val !== null && String(val).trim() !== '') {
-                        lines.push(`${k}: ${val}`);
+                        collected[fk] = String(val).trim();
                     }
                 });
+
+                // If address doc is missing city/state/pincode, try to surface them from raw OCR text for display only
+                if (key === 'address' && item.rawText) {
+                    const rt = String(item.rawText);
+                    if (!collected.city) {
+                        const m = rt.match(/city\s*[:\-]?\s*([^\n,]+)/i);
+                        if (m && m[1].trim()) collected.city = m[1].trim();
+                    }
+                    if (!collected.state) {
+                        const m = rt.match(/state\s*[:\-]?\s*([^\n,]+)/i);
+                        if (m && m[1].trim()) collected.state = m[1].trim();
+                    }
+                    if (!collected.pincode) {
+                        const m = rt.match(/(?:pin\s*code|pincode|zip\s*code|zipcode|zip)\s*[:\-]?\s*(\d{4,10})/i);
+                        if (m && m[1].trim()) collected.pincode = m[1].trim();
+                    }
+                }
+
+                if (key === 'address') {
+                    // Build a single-line address string
+                    const parts = [];
+                    if (collected.address || collected.addr) parts.push(collected.address || collected.addr);
+                    if (collected.city) parts.push(collected.city);
+                    if (collected.state) parts.push(collected.state);
+                    if (collected.pincode) parts.push(collected.pincode);
+                    const joined = parts.filter(Boolean).join(', ');
+                    if (joined) {
+                        lines.push(joined);
+                    } else {
+                        // fallback to individual lines if nothing joined
+                        Object.entries(collected).forEach(([fk, val]) => lines.push(`${fk}: ${val}`));
+                    }
+                } else {
+                    Object.entries(collected).forEach(([fk, val]) => lines.push(`${fk}: ${val}`));
+                }
+            } else {
+                const seen = new Set();
+                const normVal = (k, v) => {
+                    const val = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+                    if (val === undefined || val === null) return '';
+                    let s = String(val).trim();
+                    if (!s) return '';
+                    if (key === 'handwritten' && k === 'email') {
+                        s = s.replace(/^id:\s*/i, '');
+                    }
+                    return s;
+                };
+
+                if (key === 'handwritten') {
+                    const ordered = ['name', 'dob', 'gender', 'address', 'city', 'state', 'pincode', 'phone', 'email'];
+                    const labelMap = {
+                        name: 'Name',
+                        dob: 'Date of Birth',
+                        gender: 'Gender',
+                        address: 'Address',
+                        city: 'City',
+                        state: 'State',
+                        pincode: 'Pincode',
+                        phone: 'Phone',
+                        email: 'Email',
+                    };
+                    const fmt = (k, v) => `${labelMap[k] || k}: ${v}`;
+
+                    // Merge duplicate keys (case-insensitive) so state/pincode/etc. only show once.
+                    const merged = {};
+                    Object.entries(fields || {}).forEach(([k, v]) => {
+                        const keyLc = String(k || '').toLowerCase();
+                        const val = normVal(k, v);
+                        if (!val) return;
+                        if (!merged[keyLc]) merged[keyLc] = val;
+                    });
+
+                    ordered.forEach(k => {
+                        if (merged[k]) {
+                            lines.push(fmt(k, merged[k]));
+                            seen.add(k);
+                        }
+                    });
+
+                    Object.entries(merged).forEach(([k, v]) => {
+                        if (ordered.includes(k)) return;
+                        lines.push(fmt(k, v));
+                    });
+                } else {
+                    Object.entries(fields || {}).forEach(([k, v]) => {
+                        const val = normVal(k, v);
+                        if (val && !seen.has(k)) {
+                            seen.add(k);
+                            lines.push(`${k}: ${val}`);
+                        }
+                    });
+                }
             }
             // Prefer mapped fields; if empty, show placeholder until user edits/saves
             const displayText = lines.length ? lines.join('\n') : '(no text)';
@@ -547,7 +634,7 @@ saveExtractedBtn?.addEventListener('click', async () => {
     saveExtractedBtn.textContent = 'Saving...';
     try {
         const user = buildUserFromUI();
-        const docTypeMap = { name: 'aadhar', address: 'dl', dob: 'birth', handwritten: null };
+        const docTypeMap = { name: 'aadhar', address: 'dl', dob: 'birth', handwritten: 'handwritten' };
         const document_type = docTypeMap[currentDocKey] || null;
 
         const mapRes = await fetch(ENDPOINTS.map, {
@@ -718,10 +805,17 @@ async function submitToMOSIP() {
             formData.append('manual_data', JSON.stringify(manualData));
         }
 
+        // Allow a slightly lower threshold to reduce false negatives; adjust here if needed
+        formData.append('verification_threshold', '0.6');
+
         const resp = await fetch(ENDPOINTS.mosip.integrate, { method: 'POST', body: formData });
         const result = await resp.json();
         if (!resp.ok || result.status !== 'success') {
-            throw new Error(result.message || result.detail || 'MOSIP registration failed');
+            const vr = result.verification_results;
+            const vrMsg = vr && vr.overall_confidence !== undefined
+                ? ` (confidence ${vr.overall_confidence})`
+                : '';
+            throw new Error((result.message || result.detail || 'MOSIP registration failed') + vrMsg);
         }
 
         const preRegId = result.pre_registration_id;

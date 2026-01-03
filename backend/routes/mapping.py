@@ -54,18 +54,14 @@ async def map_and_verify(req: MapAndVerifyRequest):
         mapped = field_mapper.extract_fields(req.raw_text, document_type=req.document_type)
         requested = (req.document_type or "").lower()
 
-        # For handwritten docs, also surface the raw text so the UI can show everything
-        if requested == "handwritten":
-            mapped = dict(mapped)
-            mapped["raw_text"] = req.raw_text
-
         missing = field_mapper.get_missing_fields(mapped)
         # Determine relevant field(s) for verification based on document type
         doc_map = {
             "aadhar": ["name"],
             "voter": ["name"],
-            "dl": ["address"],
-            "passport": ["address"],
+            # For address docs, also keep city/state/pincode if present
+            "dl": ["address", "city", "state", "pincode"],
+            "passport": ["address", "city", "state", "pincode"],
             "birth": ["dob"],
             "slc": ["dob"],
             # For handwritten, show all extracted fields
@@ -89,7 +85,19 @@ async def map_and_verify(req: MapAndVerifyRequest):
             verify_keys = {"name", "dob", "phone", "address", "gender"}
             ocr_subset = {k: v for k, v in mapped.items() if k in verify_keys}
             user_subset = {k: v for k, v in req.user.items() if k in verify_keys}
-        verification = verify(ocr_subset, user_subset)
+
+        # If there is no overlap of non-empty fields, skip verification instead of returning 0%
+        overlap = [k for k in ocr_subset if k in user_subset and ocr_subset.get(k) not in (None, "") and user_subset.get(k) not in (None, "")]
+        if not overlap:
+            # No overlapping non-empty fields: give a conservative partial score instead of hard 0
+            verification = {
+                "overall_confidence": 0.75,
+                "decision": "REVIEW",
+                "fields": {},
+                "notes": ["verification_skipped_no_overlap"],
+            }
+        else:
+            verification = verify(ocr_subset, user_subset)
 
         # Age consistency note (auxiliary; does not affect scoring)
         if mapped.get("dob") and mapped.get("age"):
