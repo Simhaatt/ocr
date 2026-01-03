@@ -14,9 +14,7 @@
     <nav class="navbar navbar-dark bg-mosip p-3 shadow-sm">
         <div class="container-fluid d-flex justify-content-between">
             <span class="navbar-brand mb-0 h1 fw-bold">MOSIP Registration Client</span>
-            <div class="text-white small">
-                <span class="badge bg-success">● Online</span>
-            </div>
+            <div class="text-white small"></div>
         </div>
     </nav>
 
@@ -178,7 +176,7 @@
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-white fw-bold">Upload Documents for Verification</div>
                         <div class="card-body">
-                            <div class="alert alert-info py-2 small" role="alert">Optional handwritten document upload is supported below.</div>
+                            <div class="alert alert-info py-2 small" role="alert">Handwritten document upload is supported below.</div>
                             <div class="mb-3">
                                 <label class="form-label fw-semibold">Name verification document (e.g., Aadhaar, Voter ID)</label>
                                 <input type="file" id="aadharFile" accept="image/*,.pdf" class="form-control">
@@ -191,10 +189,7 @@
                                 <label class="form-label fw-semibold">Date of birth document (e.g., Birth Certificate, School Leaving Certificate)</label>
                                 <input type="file" id="birthCertFile" accept="image/*,.pdf" class="form-control">
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label fw-semibold">Handwritten Document (Optional)</label>
-                                <input type="file" id="handwrittenFile" accept="image/*,.pdf" class="form-control">
-                            </div>
+
 
                             <div id="loading-spinner" class="d-none mt-3">
                                 <div class="spinner-border text-mosip" role="status"></div>

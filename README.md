@@ -9,6 +9,11 @@ This project provides an end-to-end flow for document OCR, field mapping, and ve
 - Simple frontend to collect applicant details, upload docs, and review confidence
 - Inline edit/save of extracted text per document on the review page; saving re-runs map+verify to refresh confidence scores
 
+## Tech Stack
+- **Backend:** Python, FastAPI, Uvicorn, PaddleOCR, OpenCV, PyMuPDF (fitz), RapidFuzz, Pydantic
+- **Frontend:** HTML, CSS, Vanilla JS, Bootstrap 5
+- **Testing:** Pytest
+
 ## Project Structure
 - `backend/` FastAPI service
     - `core/ocr.py` OCR utilities: instance cache, preprocess, image/PDF handling
